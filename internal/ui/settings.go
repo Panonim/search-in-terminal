@@ -213,13 +213,16 @@ func (m Model) applySettings(save bool) (tea.Model, tea.Cmd) {
 	m.settings.msg = "saved to " + config.Path()
 	m.renderer = newRenderer(cfg, m.bg)
 
-	var cmd tea.Cmd
+	// The active backend is rebuilt either way, since it holds its own copy of cache and search settings.
+	name := m.backend.Name()
 	if backendChanged {
-		if b, err := backend.New(cfg.General.Backend, cfg); err == nil {
-			m.backend = b
-			if m.query != "" {
-				cmd = m.search(m.query, 1, false)
-			}
+		name = cfg.General.Backend
+	}
+	var cmd tea.Cmd
+	if b, err := backend.New(name, cfg); err == nil {
+		m.backend = b
+		if backendChanged && m.query != "" {
+			cmd = m.search(m.query, 1, false)
 		}
 	}
 	m.renderContent()

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,8 @@ type cached struct {
 	Backend
 	dir string
 	ttl time.Duration
+	// settings folds result-shaping options into the key, so edited settings never serve old results.
+	settings string
 }
 
 func withCache(b Backend, cfg config.Config) Backend {
@@ -29,22 +32,27 @@ func withCache(b Backend, cfg config.Config) Backend {
 	if ttl <= 0 {
 		return b
 	}
-	return &cached{Backend: b, dir: config.ResultsCacheDir(), ttl: ttl}
+	g, d := cfg.General, cfg.Backends.Degoog
+	settings := fmt.Sprint(g.Region, g.SafeSearch, g.ResultsPerPage, d.Type, d.Engines)
+	return &cached{Backend: b, dir: config.ResultsCacheDir(), ttl: ttl, settings: settings}
 }
 
 type cacheEntry struct {
 	Saved   time.Time `json:"saved"`
 	Query   string    `json:"query"`
+	Compact string    `json:"compact"`
 	Results []Result  `json:"results"`
 	Next    string    `json:"next,omitempty"`
 }
 
 func (c *cached) Search(ctx context.Context, query string, page int) ([]Result, error) {
 	key := normalizeQuery(query)
+	// compact keeps word order but drops spacing, so "speed test" finds "speedtest" and "what's" finds "whats".
+	compact := strings.Join(queryWords(query), "")
 	path := filepath.Join(c.dir, c.prefix(page)+"-"+hash(key)[:16]+".json")
 	entry, ok := c.read(path)
 	if !ok {
-		entry, ok = c.closest(key, page)
+		entry, ok = c.closest(key, compact, page)
 	}
 	pager, paged := c.Backend.(Pager)
 	if ok {
@@ -66,7 +74,10 @@ func (c *cached) Search(ctx context.Context, query string, page int) ([]Result, 
 	if paged {
 		next = pager.Cursor(query, page+1)
 	}
-	c.write(path, cacheEntry{Saved: time.Now(), Query: key, Results: results, Next: next})
+	// An empty page is often a transient engine hiccup, so it is retried rather than cached.
+	if len(results) > 0 {
+		c.write(path, cacheEntry{Saved: time.Now(), Query: key, Compact: compact, Results: results, Next: next})
+	}
 	return results, nil
 }
 
@@ -79,13 +90,13 @@ func (c *cached) Suggest(ctx context.Context, query string) []string {
 	return nil
 }
 
-// prefix groups entries of one backend and page so fuzzy lookup only scans those.
+// prefix groups entries of one backend, settings and page so fuzzy lookup only scans those.
 func (c *cached) prefix(page int) string {
-	return hash(c.Backend.Name() + "\x00" + c.Backend.Label() + "\x00" + strconv.Itoa(page))[:8]
+	return hash(c.Backend.Name() + "\x00" + c.Backend.Label() + "\x00" + c.settings + "\x00" + strconv.Itoa(page))[:8]
 }
 
-// closest returns the fresh entry whose query differs only by word order and small typos.
-func (c *cached) closest(key string, page int) (cacheEntry, bool) {
+// closest returns the fresh entry whose query differs only by word order, spacing and small typos.
+func (c *cached) closest(key, compact string, page int) (cacheEntry, bool) {
 	paths, _ := filepath.Glob(filepath.Join(c.dir, c.prefix(page)+"-*.json"))
 	words := strings.Fields(key)
 	var best cacheEntry
@@ -95,13 +106,18 @@ func (c *cached) closest(key string, page int) (cacheEntry, bool) {
 		if !ok {
 			continue
 		}
-		if d, ok := queryDistance(words, strings.Fields(entry.Query)); ok && (!found || d < bestDist) {
+		d, near := queryDistance(words, strings.Fields(entry.Query))
+		if entry.Compact == compact {
+			d, near = 0, true
+		}
+		if near && (!found || d < bestDist) {
 			best, bestDist, found = entry, d, true
 		}
 	}
 	return best, found
 }
 
+// read deletes expired or corrupt entries on sight, so stale results never linger on disk.
 func (c *cached) read(path string) (cacheEntry, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -109,6 +125,7 @@ func (c *cached) read(path string) (cacheEntry, bool) {
 	}
 	var entry cacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil || time.Since(entry.Saved) >= c.ttl {
+		os.Remove(path)
 		return cacheEntry{}, false
 	}
 	return entry, true
@@ -136,10 +153,11 @@ func (c *cached) write(path string, entry cacheEntry) {
 	os.Rename(name, path)
 }
 
-// CleanCache removes expired result entries now and then once per TTL, and never returns.
+// CleanCache removes expired result entries now and then once per TTL, and never returns; with caching off it drops them all.
 func CleanCache(cfg config.Config) {
 	ttl := cfg.CacheTTL()
 	if ttl <= 0 {
+		os.RemoveAll(config.ResultsCacheDir())
 		return
 	}
 	tick := time.NewTicker(max(ttl, time.Minute))
@@ -166,11 +184,15 @@ func hash(s string) string {
 
 // normalizeQuery lowercases, strips punctuation and sorts words so reordered queries share a key.
 func normalizeQuery(q string) string {
-	words := strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+	words := queryWords(q)
 	slices.Sort(words)
 	return strings.Join(words, " ")
+}
+
+func queryWords(q string) []string {
+	return strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
 
 // queryDistance pairs every word with a close unused word in the other query and sums the edits.

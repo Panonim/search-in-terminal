@@ -210,7 +210,11 @@ func scale(src image.Image, w, h int) image.Image {
 	return dst
 }
 
+// cachePath is empty when the disk cache is off, so reads fail instead of hitting the working directory.
 func (r *Renderer) cachePath(host string) string {
+	if r.cacheDir == "" {
+		return ""
+	}
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%dx%d", host, r.backdrop, r.cells*r.cellW, r.cellH)))
 	return filepath.Join(r.cacheDir, hex.EncodeToString(sum[:])[:16]+".png")
 }

@@ -131,7 +131,11 @@ func termBackground() color.NRGBA {
 }
 
 func newRenderer(cfg config.Config, bg color.NRGBA) *img.Renderer {
-	return img.NewRenderer(img.Detect(), config.FaviconDir(), iconWidth, cfg.Theme.Icons, cfg.Theme.IconBackdrop, bg)
+	dir := config.FaviconDir()
+	if !cfg.General.Cache {
+		dir = ""
+	}
+	return img.NewRenderer(img.Detect(), dir, iconWidth, cfg.Theme.Icons, cfg.Theme.IconBackdrop, bg)
 }
 
 func (m Model) Init() tea.Cmd {

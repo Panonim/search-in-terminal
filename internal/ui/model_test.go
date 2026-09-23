@@ -276,6 +276,17 @@ func TestPanesIgnoreResultsScroll(t *testing.T) {
 	}
 }
 
+func TestApplyingSettingsKeepsActiveBackend(t *testing.T) {
+	m := press(withResults(t, newTestModel(t), 2), "tab")
+	active := m.backend.Name()
+	m.settings.cfg.General.Cache = false
+	next, _ := m.applySettings(false)
+	m = next.(Model)
+	if m.backend.Name() != active || m.cfg.CacheTTL() != 0 {
+		t.Errorf("settings should rebuild %s with caching off, got %s", active, m.backend.Name())
+	}
+}
+
 func TestViewFitsTerminalWidth(t *testing.T) {
 	m := withResults(t, newTestModel(t), 3)
 	for _, line := range strings.Split(m.View(), "\n") {

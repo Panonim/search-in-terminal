@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Panonim/search-in-terminal/internal/config"
 )
 
 type countingBackend struct {
 	calls int
+	empty bool
 }
 
 func (c *countingBackend) Name() string          { return "fake" }
@@ -17,6 +20,9 @@ func (c *countingBackend) Label() string         { return "fake" }
 func (c *countingBackend) Ready() (bool, string) { return true, "" }
 func (c *countingBackend) Search(ctx context.Context, query string, page int) ([]Result, error) {
 	c.calls++
+	if c.empty {
+		return nil, nil
+	}
 	return []Result{{Title: query, URL: "https://example.com"}}, nil
 }
 
@@ -74,6 +80,59 @@ func TestCachedSearchMatchesReorderedAndMistypedQuery(t *testing.T) {
 	}
 }
 
+func TestCachedSearchIgnoresSpacingAndApostrophes(t *testing.T) {
+	t.Setenv("SIT_CACHE_DIR", t.TempDir())
+	cfg := testConfig()
+	cfg.General.CacheTTLSeconds = 300
+	inner := &countingBackend{}
+	b := withCache(inner, cfg)
+
+	for _, pair := range [][2]string{{"speed test", "speedtest"}, {"type script generics", "typescript generics"}, {"what's new in go", "whats new in go"}} {
+		b.Search(context.Background(), pair[0], 1)
+		if res, _ := b.Search(context.Background(), pair[1], 1); len(res) != 1 || !res[0].Cached {
+			t.Errorf("%q should reuse the %q entry", pair[1], pair[0])
+		}
+	}
+	if inner.calls != 3 {
+		t.Errorf("want one engine hit per pair, got %d", inner.calls)
+	}
+}
+
+func TestCacheServesNothingStale(t *testing.T) {
+	t.Setenv("SIT_CACHE_DIR", t.TempDir())
+	cfg := testConfig()
+	cfg.General.CacheTTLSeconds = 300
+	inner := &countingBackend{}
+	withCache(inner, cfg).Search(context.Background(), "q", 1)
+
+	cfg.General.Region = "de"
+	if res, _ := withCache(inner, cfg).Search(context.Background(), "q", 1); inner.calls != 2 || res[0].Cached {
+		t.Errorf("changed settings must not reuse results made with the old ones, %d calls", inner.calls)
+	}
+
+	inner.empty = true
+	withCache(inner, cfg).Search(context.Background(), "nothing", 1)
+	withCache(inner, cfg).Search(context.Background(), "nothing", 1)
+	if inner.calls != 4 {
+		t.Errorf("empty pages should be retried, not cached, got %d calls", inner.calls)
+	}
+
+	c := &cached{Backend: inner, dir: config.ResultsCacheDir(), ttl: time.Millisecond}
+	inner.empty = false
+	c.Search(context.Background(), "old", 1)
+	time.Sleep(5 * time.Millisecond)
+	paths, _ := filepath.Glob(filepath.Join(c.dir, c.prefix(1)+"-*.json"))
+	if len(paths) != 1 {
+		t.Fatalf("want one entry, got %v", paths)
+	}
+	if _, ok := c.read(paths[0]); ok {
+		t.Error("expired entry should not be served")
+	}
+	if _, err := os.Stat(paths[0]); !os.IsNotExist(err) {
+		t.Error("expired entry should be deleted once seen")
+	}
+}
+
 func TestPruneCacheRemovesOnlyExpired(t *testing.T) {
 	dir := t.TempDir()
 	old, fresh := filepath.Join(dir, "old.json"), filepath.Join(dir, "fresh.json")
@@ -107,5 +166,22 @@ func TestCacheDisabledWhenTTLIsZero(t *testing.T) {
 	}
 	if inner.calls != 2 {
 		t.Errorf("want no caching with ttl=0, got %d calls", inner.calls)
+	}
+}
+
+func TestCacheSwitchedOff(t *testing.T) {
+	t.Setenv("SIT_CACHE_DIR", t.TempDir())
+	cfg := testConfig()
+	cfg.General.CacheTTLSeconds = 300
+	withCache(&countingBackend{}, cfg).Search(context.Background(), "q", 1)
+
+	cfg.General.Cache = false
+	inner := &countingBackend{}
+	if b := withCache(inner, cfg); b != Backend(inner) {
+		t.Error("cache = false should skip the cache wrapper")
+	}
+	CleanCache(cfg)
+	if _, err := os.Stat(config.ResultsCacheDir()); !os.IsNotExist(err) {
+		t.Error("saved results should be dropped when caching is off")
 	}
 }

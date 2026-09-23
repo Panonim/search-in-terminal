@@ -135,6 +135,7 @@ func Fields() []Field {
 	g5, s5 := num(func(c *Config) *int { return &c.General.TimeoutSeconds })
 	g6, s6 := str(func(c *Config) *string { return &c.General.OpenCommand })
 	g7, s7 := num(func(c *Config) *int { return &c.General.CacheTTLSeconds })
+	g8, s8 := boolean(func(c *Config) *bool { return &c.General.Cache })
 	t1, u1 := str(func(c *Config) *string { return &c.Theme.Accent })
 	t2, u2 := boolean(func(c *Config) *bool { return &c.Theme.Icons })
 	t5, u5 := boolean(func(c *Config) *bool { return &c.Theme.IconBackdrop })
@@ -155,7 +156,8 @@ func Fields() []Field {
 		field("general.region", "Region hint, e.g. us, de, pl (empty = auto)", KindString, g4, s4),
 		field("general.timeout_seconds", "HTTP timeout per search", KindInt, g5, s5),
 		field("general.open_command", "Override the browser opener command", KindString, g6, s6),
-		field("general.cache_ttl_seconds", "How long search results stay cached, 0 disables", KindInt, g7, s7),
+		field("general.cache", "Cache search results and favicons on disk", KindBool, g8, s8),
+		field("general.cache_ttl_seconds", "How long search results stay cached, in seconds", KindInt, g7, s7),
 		field("theme.accent", "Accent colour (hex or ANSI index)", KindString, t1, u1),
 		field("theme.icons", "Render favicons when the terminal supports it", KindBool, t2, u2),
 		field("theme.icon_backdrop", "Put a circle behind favicons too dark or light for the terminal", KindBool, t5, u5),
