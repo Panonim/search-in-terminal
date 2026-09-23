@@ -36,6 +36,7 @@ type cacheEntry struct {
 	Saved   time.Time `json:"saved"`
 	Query   string    `json:"query"`
 	Results []Result  `json:"results"`
+	Next    string    `json:"next,omitempty"`
 }
 
 func (c *cached) Search(ctx context.Context, query string, page int) ([]Result, error) {
@@ -45,7 +46,12 @@ func (c *cached) Search(ctx context.Context, query string, page int) ([]Result, 
 	if !ok {
 		entry, ok = c.closest(key, page)
 	}
+	pager, paged := c.Backend.(Pager)
 	if ok {
+		// Restoring the saved token lets the next page load without refetching this one.
+		if paged && entry.Next != "" {
+			pager.SetCursor(query, page+1, entry.Next)
+		}
 		for i := range entry.Results {
 			entry.Results[i].Cached = true
 		}
@@ -56,7 +62,11 @@ func (c *cached) Search(ctx context.Context, query string, page int) ([]Result, 
 	if err != nil {
 		return results, err
 	}
-	c.write(path, key, results)
+	next := ""
+	if paged {
+		next = pager.Cursor(query, page+1)
+	}
+	c.write(path, cacheEntry{Saved: time.Now(), Query: key, Results: results, Next: next})
 	return results, nil
 }
 
@@ -104,8 +114,8 @@ func (c *cached) read(path string) (cacheEntry, bool) {
 	return entry, true
 }
 
-func (c *cached) write(path, key string, results []Result) {
-	data, err := json.Marshal(cacheEntry{Saved: time.Now(), Query: key, Results: results})
+func (c *cached) write(path string, entry cacheEntry) {
+	data, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}

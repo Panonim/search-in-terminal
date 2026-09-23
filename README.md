@@ -85,7 +85,7 @@ Defaults. Anything with a setting name can be rebound under `[keys]` in the conf
 | <kbd>?</kbd> | toggle help | `keys.help` |
 | <kbd>q</kbd> / <kbd>Ctrl+c</kbd> | quit | `keys.quit` |
 
-Moving the selection past the last result loads the next page automatically.
+Below the last result sits a **load more results** button: select it and press <kbd>Enter</kbd>, or click it, to append the next page. Results already on screen are skipped, so only new links are added.
 
 Inside the settings panel:
 

@@ -177,6 +177,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && m.onMoreButton(msg.Y) {
+			return m, m.loadMore()
+		}
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
 		return m, cmd
@@ -199,20 +202,24 @@ func (m Model) handleResults(msg resultsMsg) (tea.Model, tea.Cmd) {
 	}
 	m.errMsg = ""
 	if msg.append {
-		if len(msg.results) == 0 {
-			m.status = "no more results"
-			m.renderContent()
-			return m, nil
+		fresh := unseen(m.results, msg.results)
+		// A page of only repeats still advances, so the next press asks for the page after it.
+		if len(msg.results) > 0 {
+			m.page = msg.page
 		}
-		first := len(m.results)
-		m.results = append(m.results, msg.results...)
-		m.sel = first
+		if len(fresh) == 0 {
+			m.renderContent()
+			return m, statusCmd("no new results")
+		}
+		m.sel = len(m.results)
+		m.results = append(m.results, fresh...)
+		msg.results = fresh
 	} else {
 		m.results = msg.results
 		m.sel = 0
+		m.page = msg.page
 		m.vp.GotoTop()
 	}
-	m.page = msg.page
 	m.input.Blur()
 	m.renderContent()
 	m.scrollToSelection()
@@ -229,8 +236,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pane == paneHelp {
 		switch key {
 		case k.Help, "esc", "q", "enter":
-			m.pane = paneResults
-			m.renderContent()
+			m.closePane()
 			return m, nil
 		}
 	}
@@ -243,8 +249,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			return m, nil
 		}
-		m.pane = paneResults
-		m.renderContent()
+		m.closePane()
 		return m, nil
 	case k.Focus:
 		if !m.input.Focused() {
@@ -291,6 +296,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.renderContent()
 		return m, nil
 	case k.Open, "enter":
+		if m.sel == len(m.results) {
+			return m, m.loadMore()
+		}
 		return m.openSelected()
 	case k.Copy:
 		if r, ok := m.selected(); ok {
@@ -301,10 +309,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case k.NextPage:
-		if m.query != "" {
-			return m, m.search(m.query, m.page+1, true)
-		}
-		return m, nil
+		return m, m.loadMore()
 	case k.PrevPage:
 		if m.query != "" && m.page > 1 {
 			return m, m.search(m.query, m.page-1, false)
@@ -323,17 +328,15 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	k := m.cfg.Keys
 	switch key {
 	case k.Down, "down", "ctrl+n":
-		if m.sel < len(m.results)-1 {
+		if m.sel < len(m.results) {
 			m.sel++
-		} else if len(m.results) > 0 && !m.loading && m.query != "" {
-			return m, m.search(m.query, m.page+1, true)
 		}
 	case k.Up, "up", "ctrl+p":
 		if m.sel > 0 {
 			m.sel--
 		}
 	case "pgdown", "ctrl+d":
-		m.sel = min(m.sel+5, max(0, len(m.results)-1))
+		m.sel = min(m.sel+5, len(m.results))
 	case "pgup", "ctrl+u":
 		m.sel = max(m.sel-5, 0)
 	case "g", "home":
@@ -401,6 +404,36 @@ func (m *Model) search(query string, page int, appendResults bool) tea.Cmd {
 	})
 }
 
+func (m *Model) loadMore() tea.Cmd {
+	if m.loading || m.query == "" || len(m.results) == 0 {
+		return nil
+	}
+	cmd := m.search(m.query, m.page+1, true)
+	m.renderContent()
+	return cmd
+}
+
+// onMoreButton reports whether screen row y is the load-more row below the results.
+func (m Model) onMoreButton(y int) bool {
+	return m.pane == paneResults && len(m.rowStart) > len(m.results) && y-headerHeight+m.vp.YOffset == m.rowStart[len(m.results)]
+}
+
+// unseen drops results whose URL is already shown or repeated within next.
+func unseen(shown, next []backend.Result) []backend.Result {
+	seen := make(map[string]bool, len(shown)+len(next))
+	for _, r := range shown {
+		seen[strings.TrimSuffix(r.URL, "/")] = true
+	}
+	var out []backend.Result
+	for _, r := range next {
+		if key := strings.TrimSuffix(r.URL, "/"); !seen[key] {
+			seen[key] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func (m Model) prefetchIcons(results []backend.Result) tea.Cmd {
 	if !m.renderer.Enabled() {
 		return nil
@@ -437,8 +470,9 @@ func statusCmd(text string) tea.Cmd {
 	return func() tea.Msg { return statusMsg{text: text} }
 }
 
+const headerHeight = 3
+
 func (m *Model) layout() {
-	headerHeight := 3
 	footerHeight := 2
 	h := m.height - headerHeight - footerHeight
 	if h < 3 {
@@ -491,7 +525,7 @@ func (m Model) footer() string {
 		m.cfg.Keys.Focus, m.cfg.Keys.NextBackend, m.cfg.Keys.Open, m.cfg.Keys.Copy,
 		m.cfg.Keys.Help, m.cfg.Keys.Settings, m.cfg.Keys.Quit)
 	if len(m.results) > 0 {
-		hint = fmt.Sprintf("%d/%d · page %d · ", m.sel+1, len(m.results), m.page) + hint
+		hint = fmt.Sprintf("%d/%d · page %d · ", min(m.sel+1, len(m.results)), len(m.results), m.page) + hint
 	}
 	return m.styles.Dim.Render(truncate(hint, m.width))
 }

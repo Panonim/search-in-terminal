@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	img "github.com/Panonim/search-in-terminal/internal/image"
 )
 
@@ -26,6 +28,17 @@ func (m *Model) renderContent() {
 		m.rowStart = starts
 		m.vp.SetContent(strings.Join(lines, "\n"))
 	}
+	// Help and settings lay themselves out to the pane height, so a leftover results scroll would cut them off.
+	if m.pane != paneResults {
+		m.vp.GotoTop()
+	}
+}
+
+// closePane returns to the results with the selection back in view.
+func (m *Model) closePane() {
+	m.pane = paneResults
+	m.renderContent()
+	m.scrollToSelection()
 }
 
 func (m *Model) resultLines() ([]string, []int) {
@@ -62,9 +75,14 @@ func (m *Model) resultLines() ([]string, []int) {
 		}
 		lines = append(lines, "")
 	}
+	starts = append(starts, len(lines))
+	label, style := "[ load more results ]", m.styles.Dim
 	if m.loading {
-		lines = append(lines, m.styles.Dim.Render("  loading page "+fmt.Sprint(m.page+1)+"…"))
+		label = "loading…"
+	} else if m.sel == len(m.results) {
+		style = m.styles.TitleSel
 	}
+	lines = append(lines, center(style.Render(label), width))
 	return lines, starts
 }
 
@@ -81,8 +99,11 @@ func (m *Model) emptyLines() []string {
 	default:
 		body = fmt.Sprintf("no results for %q - try another backend with %s", m.query, m.cfg.Keys.NextBackend)
 	}
-	centered := strings.Repeat(" ", max(0, (m.vp.Width-len(body))/2)) + m.styles.Dim.Render(body)
-	return strings.Split(pad+centered, "\n")
+	return strings.Split(pad+center(m.styles.Dim.Render(body), m.vp.Width), "\n")
+}
+
+func center(s string, w int) string {
+	return strings.Repeat(" ", max(0, (w-ansi.StringWidth(s))/2)) + s
 }
 
 // icon returns a favicon escape sequence or a monogram, always exactly iconWidth cells wide.
@@ -96,7 +117,7 @@ func (m *Model) icon(pageURL string) string {
 }
 
 func (m *Model) scrollToSelection() {
-	if len(m.rowStart) == 0 || m.sel >= len(m.rowStart) {
+	if m.pane != paneResults || len(m.rowStart) == 0 || m.sel >= len(m.rowStart) {
 		return
 	}
 	start := m.rowStart[m.sel]

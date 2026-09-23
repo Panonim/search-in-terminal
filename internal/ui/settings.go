@@ -91,8 +91,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc", m.cfg.Keys.Settings, "q":
-		m.pane = paneResults
-		m.renderContent()
+		m.closePane()
 		return m, nil
 	case "ctrl+c":
 		return m, tea.Quit
