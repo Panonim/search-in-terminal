@@ -5,15 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/Panonim/search-in-terminal/internal/config"
 )
 
 const braveEndpoint = "https://api.search.brave.com/res/v1/web/search"
 
+// braveWebEndpoint is a var so tests can point it at a local server.
+var braveWebEndpoint = "https://search.brave.com/search"
+
+// Without an API key, brave falls back to scraping search.brave.com on a best-effort basis.
 type brave struct {
 	cfg config.Config
 	key string
@@ -21,15 +29,16 @@ type brave struct {
 
 func newBrave(cfg config.Config) *brave { return &brave{cfg: cfg, key: cfg.BraveKey()} }
 
-func (b *brave) Name() string  { return "brave" }
-func (b *brave) Label() string { return "brave" }
+func (b *brave) Name() string { return "brave" }
 
-func (b *brave) Ready() (bool, string) {
+func (b *brave) Label() string {
 	if b.key == "" {
-		return false, "no API key: set $SIT_BRAVE_API_KEY or backends.brave.api_key"
+		return "brave (web)"
 	}
-	return true, ""
+	return "brave"
 }
+
+func (b *brave) Ready() (bool, string) { return true, "" }
 
 type braveResponse struct {
 	Web struct {
@@ -48,9 +57,13 @@ type braveResponse struct {
 }
 
 func (b *brave) Search(ctx context.Context, query string, page int) ([]Result, error) {
-	if ok, why := b.Ready(); !ok {
-		return nil, errors.New("brave: " + why)
+	if b.key == "" {
+		return b.searchWeb(ctx, query, page)
 	}
+	return b.searchAPI(ctx, query, page)
+}
+
+func (b *brave) searchAPI(ctx context.Context, query string, page int) ([]Result, error) {
 	count := b.cfg.General.ResultsPerPage
 	if count > 20 {
 		count = 20
@@ -99,6 +112,71 @@ func (b *brave) Search(ctx context.Context, query string, page int) ([]Result, e
 		})
 	}
 	return out, nil
+}
+
+var (
+	braveBlockRE   = regexp.MustCompile(`<div class="snippet[^"]*"[^>]*data-type="web"`)
+	braveLinkRE    = regexp.MustCompile(`<a href="(https?://[^"]+)"`)
+	braveTitleRE   = regexp.MustCompile(`(?s)class="[^"]*search-snippet-title[^"]*"[^>]*>(.*?)</div>`)
+	braveSnippetRE = regexp.MustCompile(`(?s)class="generic-snippet[^"]*"[^>]*>\s*<div[^>]*>(.*?)</div>`)
+	braveFaviconRE = regexp.MustCompile(`<img[^>]*\ssrc="(https://imgs\.search\.brave\.com/[^"]+)"`)
+)
+
+func (b *brave) searchWeb(ctx context.Context, query string, page int) ([]Result, error) {
+	q := url.Values{}
+	q.Set("q", query)
+	q.Set("source", "web")
+	if page > 1 {
+		q.Set("offset", strconv.Itoa(page-1))
+	}
+	resp, err := get(ctx, httpClient(b.cfg), braveWebEndpoint+"?"+q.Encode(), map[string]string{
+		"Accept":          "text/html",
+		"Accept-Language": "en-US,en;q=0.9",
+		"Cookie":          "safesearch=" + braveSafe(b.cfg.General.SafeSearch),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests || strings.Contains(resp.Request.URL.Path, "captcha") {
+		return nil, errors.New("brave: rate limited, set an API key or switch backend")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError("brave", resp)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	return parseBraveWeb(string(raw)), nil
+}
+
+func parseBraveWeb(body string) []Result {
+	starts := braveBlockRE.FindAllStringIndex(body, -1)
+	out := make([]Result, 0, len(starts))
+	for i, s := range starts {
+		end := len(body)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		block := body[s[0]:end]
+		link := braveLinkRE.FindStringSubmatch(block)
+		title := braveTitleRE.FindStringSubmatch(block)
+		if link == nil || title == nil {
+			continue
+		}
+		r := Result{Title: clean(title[1]), URL: html.UnescapeString(link[1]), Source: "brave"}
+		if m := braveSnippetRE.FindStringSubmatch(block); m != nil {
+			r.Snippet = clean(m[1])
+		}
+		if m := braveFaviconRE.FindStringSubmatch(block); m != nil {
+			r.FaviconURL = m[1]
+		}
+		if r.Title != "" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func braveSafe(level string) string {

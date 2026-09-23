@@ -137,6 +137,7 @@ func Fields() []Field {
 	g7, s7 := num(func(c *Config) *int { return &c.General.CacheTTLSeconds })
 	t1, u1 := str(func(c *Config) *string { return &c.Theme.Accent })
 	t2, u2 := boolean(func(c *Config) *bool { return &c.Theme.Icons })
+	t5, u5 := boolean(func(c *Config) *bool { return &c.Theme.IconBackdrop })
 	t3, u3 := num(func(c *Config) *int { return &c.Theme.SnippetLines })
 	t4, u4 := boolean(func(c *Config) *bool { return &c.Theme.ShowSource })
 	b1, v1 := str(func(c *Config) *string { return &c.Backends.Brave.APIKey })
@@ -157,6 +158,7 @@ func Fields() []Field {
 		field("general.cache_ttl_seconds", "How long search results stay cached, 0 disables", KindInt, g7, s7),
 		field("theme.accent", "Accent colour (hex or ANSI index)", KindString, t1, u1),
 		field("theme.icons", "Render favicons when the terminal supports it", KindBool, t2, u2),
+		field("theme.icon_backdrop", "Put a circle behind favicons too dark or light for the terminal", KindBool, t5, u5),
 		field("theme.snippet_lines", "Snippet lines per result", KindInt, t3, u3),
 		field("theme.show_source", "Show the backend name on each result", KindBool, t4, u4),
 		field("backends.degoog.instance", "Degoog instance URL (or $SIT_DEGOOG_URL)", KindString, d1, w1),

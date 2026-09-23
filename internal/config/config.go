@@ -33,6 +33,7 @@ type General struct {
 type Theme struct {
 	Accent       string `toml:"accent"`
 	Icons        bool   `toml:"icons"`
+	IconBackdrop bool   `toml:"icon_backdrop"`
 	SnippetLines int    `toml:"snippet_lines"`
 	ShowSource   bool   `toml:"show_source"`
 }
@@ -96,6 +97,7 @@ func Default() Config {
 		Theme: Theme{
 			Accent:       "#5f9ea0",
 			Icons:        true,
+			IconBackdrop: true,
 			SnippetLines: 2,
 			ShowSource:   false,
 		},

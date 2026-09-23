@@ -4,6 +4,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"image/color"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
@@ -49,6 +52,9 @@ type Model struct {
 	reqID   int
 	errMsg  string
 	status  string
+	bg      color.NRGBA
+	// initCmd is built in New because Init's value receiver would drop search's reqID/loading updates.
+	initCmd tea.Cmd
 
 	settings settingsModel
 	rowStart []int
@@ -97,12 +103,14 @@ func New(cfg config.Config, version, initialQuery string) (Model, error) {
 	sp.Spinner = spinner.Dot
 	sp.Style = styles.Accent
 
+	bg := termBackground()
 	m := Model{
 		cfg:      cfg,
 		version:  version,
 		styles:   styles,
 		backend:  b,
-		renderer: img.NewRenderer(img.Detect(), config.FaviconDir(), 2, cfg.Theme.Icons),
+		bg:       bg,
+		renderer: newRenderer(cfg, bg),
 		input:    in,
 		spin:     sp,
 		vp:       viewport.New(80, 20),
@@ -111,16 +119,23 @@ func New(cfg config.Config, version, initialQuery string) (Model, error) {
 	}
 	if initialQuery != "" {
 		m.query = initialQuery
+		m.initCmd = m.search(m.query, 1, false)
 	}
 	return m, nil
 }
 
+// termBackground must run before Bubble Tea owns stdin, so the terminal's reply cannot reach its input.
+func termBackground() color.NRGBA {
+	r, g, b := termenv.ConvertToRGB(termenv.NewOutput(os.Stdout).BackgroundColor()).RGB255()
+	return color.NRGBA{r, g, b, 0xff}
+}
+
+func newRenderer(cfg config.Config, bg color.NRGBA) *img.Renderer {
+	return img.NewRenderer(img.Detect(), config.FaviconDir(), iconWidth, cfg.Theme.Icons, cfg.Theme.IconBackdrop, bg)
+}
+
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textinput.Blink, m.spin.Tick}
-	if m.query != "" {
-		cmds = append(cmds, m.search(m.query, 1, false))
-	}
-	return tea.Batch(cmds...)
+	return tea.Batch(textinput.Blink, m.spin.Tick, m.initCmd)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
