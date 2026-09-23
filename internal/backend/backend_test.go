@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Panonim/search-in-terminal/internal/config"
@@ -193,6 +194,96 @@ func TestBraveWebWithoutKey(t *testing.T) {
 	}
 	if gotQuery != "offset=1&q=bubbletea&source=web" || gotCookie != "safesearch=moderate" {
 		t.Errorf("query = %q, cookie = %q", gotQuery, gotCookie)
+	}
+}
+
+func ddgLite(links []string, forms string) string {
+	var b strings.Builder
+	for _, l := range links {
+		b.WriteString(`<a rel="nofollow" href="https://` + l + `.example/" class='result-link'>` + l + `</a>` +
+			`<td class='result-snippet'>about ` + l + `</td>`)
+	}
+	return b.String() + forms
+}
+
+const ddgPrevForm = `<form class="prev_form" action="/lite/" method="post">
+    <input type="submit" class='navbutton' value="&lt; Previous Page">
+    <input type="hidden" name="s" value="0">
+    <input type="hidden" name="vqd" value="4-tok">
+</form>`
+
+func ddgNextForm(s string) string {
+	return `<form class="next_form" action="/lite/" method="post">
+    <input type="submit" class='navbutton' value="Next Page &gt;">
+    <input type="hidden" name="q" value="go">
+    <input type="hidden" name="s" value="` + s + `">
+    <input type="hidden" name="vqd" value="4-tok">
+</form>`
+}
+
+// serveDDG fakes three DDG pages where later pages demand the vqd token, and counts requests.
+func serveDDG(t *testing.T) *int {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		r.ParseForm()
+		token := r.Form.Get("vqd") == "4-tok" && r.Form.Get("kl") == "wt-wt"
+		switch s := r.Form.Get("s"); {
+		case s == "":
+			w.Write([]byte(ddgLite([]string{"a", "b"}, ddgNextForm("2"))))
+		case s == "2" && token:
+			w.Write([]byte(ddgLite([]string{"c"}, ddgPrevForm+ddgNextForm("5"))))
+		case s == "5" && token:
+			w.Write([]byte(ddgLite([]string{"d"}, ddgPrevForm)))
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	oldLite, oldHTML := ddgLiteEndpoint, ddgHTMLEndpoint
+	ddgLiteEndpoint, ddgHTMLEndpoint = srv.URL+"/lite/", srv.URL+"/html/"
+	t.Cleanup(func() { ddgLiteEndpoint, ddgHTMLEndpoint = oldLite, oldHTML })
+	return &hits
+}
+
+func TestDDGLoadMoreResumesFromCachedPages(t *testing.T) {
+	t.Setenv("SIT_CACHE_DIR", t.TempDir())
+	hits := serveDDG(t)
+	cfg := testConfig()
+	cfg.General.CacheTTLSeconds = 300
+	ctx := context.Background()
+
+	first := withCache(newDDG(cfg), cfg)
+	for page := 1; page <= 2; page++ {
+		if _, err := first.Search(ctx, "go", page); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A new session gets pages 1 and 2 from disk, so page 3 needs only its own request.
+	b := withCache(newDDG(cfg), cfg)
+	for page := 1; page <= 2; page++ {
+		if res, _ := b.Search(ctx, "go", page); len(res) == 0 || !res[0].Cached {
+			t.Fatalf("page %d should come from cache: %+v", page, res)
+		}
+	}
+	res, err := b.Search(ctx, "go", 3)
+	if err != nil || len(res) != 1 || res[0].URL != "https://d.example/" || res[0].Cached {
+		t.Fatalf("page 3 = %+v, %v", res, err)
+	}
+	if *hits != 3 {
+		t.Errorf("cached pages must not be refetched for their token, got %d hits", *hits)
+	}
+	if res, err := b.Search(ctx, "go", 4); err != nil || len(res) != 0 || *hits != 3 {
+		t.Errorf("page 4 = %+v, %v after %d hits; want end of results without a request", res, err, *hits)
+	}
+}
+
+func TestDDGWalksForTokenWithoutCache(t *testing.T) {
+	hits := serveDDG(t)
+	res, err := newDDG(testConfig()).Search(context.Background(), "go", 3)
+	if err != nil || len(res) != 1 || res[0].URL != "https://d.example/" || *hits != 3 {
+		t.Errorf("page 3 = %+v, %v after %d hits", res, err, *hits)
 	}
 }
 

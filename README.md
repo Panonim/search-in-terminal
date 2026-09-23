@@ -85,14 +85,17 @@ Defaults. Anything with a setting name can be rebound under `[keys]` in the conf
 | <kbd>?</kbd> | toggle help | `keys.help` |
 | <kbd>q</kbd> / <kbd>Ctrl+c</kbd> | quit | `keys.quit` |
 
-Moving the selection past the last result loads the next page automatically.
+Below the last result sits a **load more results** button: select it and press <kbd>Enter</kbd>, or click it, to append the next page. Results already on screen are skipped, so only new links are added.
 
 Inside the settings panel:
 
 | Key | Action |
 | --- | --- |
-| <kbd>j</kbd> <kbd>k</kbd> | move between settings |
-| <kbd>Space</kbd> / <kbd>←</kbd> <kbd>→</kbd> | cycle a boolean or enum value |
+| <kbd>j</kbd> <kbd>k</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> | move between settings |
+| <kbd>h</kbd> <kbd>l</kbd> / <kbd>←</kbd> <kbd>→</kbd> | move to the neighbouring column |
+| <kbd>1</kbd>–<kbd>6</kbd> | jump to a numbered section |
+| <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> | jump to the next / previous section |
+| <kbd>Space</kbd> | cycle a boolean or enum value |
 | <kbd>Enter</kbd> | edit a text value, or toggle a boolean/enum |
 | <kbd>Ctrl+s</kbd> or <kbd>w</kbd> | save to the config file |
 | <kbd>Ctrl+r</kbd> | restore defaults (not saved until you save) |

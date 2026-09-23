@@ -2,7 +2,7 @@
 
 The config file lives at `~/.config/sit/config.toml` (or `$XDG_CONFIG_HOME/sit/config.toml`; override
 the whole directory with `$SIT_CONFIG_DIR`). It is optional - sit runs on defaults until you write one
-with `sit config init`. Favicons are cached under `~/.cache/sit/` (`$XDG_CACHE_HOME`, or `$SIT_CACHE_DIR`).
+with `sit config init`. Favicons and search results are cached under `~/.cache/sit/` (`$XDG_CACHE_HOME`, or `$SIT_CACHE_DIR`).
 
 ```toml
 [general]
@@ -19,6 +19,10 @@ timeout_seconds = 12
 # Override the browser opener. Empty uses xdg-open / open / rundll32.
 # The URL is appended as the last argument, e.g. "firefox --new-tab".
 open_command = ""
+# Cache search results and favicons on disk. Turning it off also clears saved results on the next start.
+cache = true
+# How long a cached result page is reused, in seconds.
+cache_ttl_seconds = 1800
 
 [theme]
 # Accent colour, hex or an ANSI palette index.
