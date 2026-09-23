@@ -3,12 +3,14 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Panonim/search-in-terminal/internal/config"
 )
@@ -16,15 +18,27 @@ import (
 // The DuckDuckGo backend scrapes the Lite/HTML endpoints; unofficial and best-effort, it can break without notice.
 type ddg struct {
 	cfg config.Config
+
+	mu sync.Mutex
+	// next holds DDG's own encoded next-page form keyed by page and query; "" marks the last page.
+	next map[string]string
 }
 
-func newDDG(cfg config.Config) *ddg { return &ddg{cfg: cfg} }
+func newDDG(cfg config.Config) *ddg { return &ddg{cfg: cfg, next: map[string]string{}} }
 
 func (d *ddg) Name() string          { return "ddg" }
 func (d *ddg) Label() string         { return "duckduckgo" }
 func (d *ddg) Ready() (bool, string) { return true, "" }
 
+// The endpoints are vars so tests can point them at a local server.
 var (
+	ddgLiteEndpoint = "https://lite.duckduckgo.com/lite/"
+	ddgHTMLEndpoint = "https://html.duckduckgo.com/html/"
+)
+
+var (
+	ddgNextRE     = regexp.MustCompile(`(?is)<form[^>]*>\s*<input type="submit"[^>]*value="Next[^"]*"[^>]*>(.*?)</form>`)
+	ddgHiddenRE   = regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)"`)
 	liteLinkRE    = regexp.MustCompile(`(?is)<a\s+[^>]*href=["']([^"']+)["'][^>]*class=['"]result-link['"][^>]*>(.*?)</a>`)
 	liteSnippetRE = regexp.MustCompile(`(?is)<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>`)
 	htmlLinkRE    = regexp.MustCompile(`(?is)<a\s+[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>`)
@@ -32,26 +46,18 @@ var (
 )
 
 func (d *ddg) Search(ctx context.Context, query string, page int) ([]Result, error) {
-	offset := max(0, page-1) * 20
-	form := url.Values{}
-	form.Set("q", query)
-	form.Set("kl", ddgRegion(d.cfg.General.Region))
-	form.Set("kp", ddgSafe(d.cfg.General.SafeSearch))
-	if offset > 0 {
-		form.Set("s", strconv.Itoa(offset))
-		form.Set("dc", strconv.Itoa(offset+1))
-		form.Set("v", "l")
-		form.Set("o", "json")
-		form.Set("api", "d.js")
+	form, err := d.form(ctx, query, page)
+	if err != nil || form == nil {
+		return nil, err
 	}
 
-	body, err := d.post(ctx, "https://lite.duckduckgo.com/lite/", form)
+	body, err := d.post(ctx, ddgLiteEndpoint, form)
 	if err != nil {
 		return nil, err
 	}
 	results := parseDDG(body, liteLinkRE, liteSnippetRE)
 	if len(results) == 0 {
-		if body, err = d.post(ctx, "https://html.duckduckgo.com/html/", form); err != nil {
+		if body, err = d.post(ctx, ddgHTMLEndpoint, form); err != nil {
 			return nil, err
 		}
 		results = parseDDG(body, htmlLinkRE, htmlSnippetRE)
@@ -59,7 +65,58 @@ func (d *ddg) Search(ctx context.Context, query string, page int) ([]Result, err
 	if len(results) == 0 && strings.Contains(body, "anomaly") {
 		return nil, errors.New("duckduckgo: blocked this request, try again later or switch backend")
 	}
+	d.remember(query, page+1, body)
 	return results, nil
+}
+
+// form returns the POST body for page; DDG rejects later pages without the vqd token and offsets from the page before.
+func (d *ddg) form(ctx context.Context, query string, page int) (url.Values, error) {
+	if page <= 1 {
+		return d.base(query), nil
+	}
+	d.mu.Lock()
+	cursor, ok := d.next[ddgKey(query, page)]
+	d.mu.Unlock()
+	if !ok {
+		if _, err := d.Search(ctx, query, page-1); err != nil {
+			return nil, err
+		}
+		cursor = d.Cursor(query, page)
+	}
+	if cursor == "" {
+		return nil, nil
+	}
+	return url.ParseQuery(cursor)
+}
+
+func (d *ddg) remember(query string, page int, body string) {
+	cursor := ""
+	if m := ddgNextRE.FindStringSubmatch(body); m != nil {
+		form := d.base(query)
+		for _, in := range ddgHiddenRE.FindAllStringSubmatch(m[1], -1) {
+			form.Set(in[1], html.UnescapeString(in[2]))
+		}
+		cursor = form.Encode()
+	}
+	d.SetCursor(query, page, cursor)
+}
+
+func (d *ddg) Cursor(query string, page int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.next[ddgKey(query, page)]
+}
+
+func (d *ddg) SetCursor(query string, page int, cursor string) {
+	d.mu.Lock()
+	d.next[ddgKey(query, page)] = cursor
+	d.mu.Unlock()
+}
+
+func ddgKey(query string, page int) string { return fmt.Sprint(page, "\x00", query) }
+
+func (d *ddg) base(query string) url.Values {
+	return url.Values{"q": {query}, "kl": {ddgRegion(d.cfg.General.Region)}, "kp": {ddgSafe(d.cfg.General.SafeSearch)}}
 }
 
 func (d *ddg) post(ctx context.Context, endpoint string, form url.Values) (string, error) {

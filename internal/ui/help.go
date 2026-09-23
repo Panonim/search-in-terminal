@@ -11,7 +11,7 @@ func (m *Model) helpView() string {
 	k := m.cfg.Keys
 	rows := [][2]string{
 		{k.Focus, "focus the search input"},
-		{"enter", "search, or open the selected result"},
+		{"enter", "search, open the selected result, or load more"},
 		{k.NextBackend + " / " + k.PrevBackend, "cycle backend, then enter to search it"},
 		{k.Down + " " + k.Up + " / ↓ ↑", "move selection"},
 		{"ctrl+d / ctrl+u", "page through results"},

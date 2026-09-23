@@ -29,6 +29,12 @@ type Suggester interface {
 	Suggest(ctx context.Context, query string) []string
 }
 
+// Pager is implemented by backends whose next page needs a token from the page before, so the cache can keep it.
+type Pager interface {
+	Cursor(query string, page int) string
+	SetCursor(query string, page int, cursor string)
+}
+
 type Backend interface {
 	Name() string
 	Label() string

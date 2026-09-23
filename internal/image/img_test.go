@@ -1,6 +1,27 @@
 package img
 
-import "testing"
+import (
+	"image"
+	"image/color"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestSixelNotOverwrittenBySpaces(t *testing.T) {
+	r := NewRenderer(ProtocolSixel, t.TempDir(), 2, true, false, color.NRGBA{A: 0xff})
+	seq, err := r.encodeSixel(image.NewRGBA(image.Rect(0, 0, 18, 18)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(seq, "\x1b8\x1b[2C") {
+		t.Errorf("image must be followed by a cursor move, not text: %q", seq[len(seq)-10:])
+	}
+	if w := ansi.StringWidth(seq); w != 2 {
+		t.Errorf("width = %d, want 2", w)
+	}
+}
 
 func TestMonogram(t *testing.T) {
 	cases := []struct{ in, want string }{

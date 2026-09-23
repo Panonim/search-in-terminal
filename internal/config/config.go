@@ -27,12 +27,14 @@ type General struct {
 	Region          string `toml:"region"`
 	TimeoutSeconds  int    `toml:"timeout_seconds"`
 	OpenCommand     string `toml:"open_command"`
+	Cache           bool   `toml:"cache"`
 	CacheTTLSeconds int    `toml:"cache_ttl_seconds"`
 }
 
 type Theme struct {
 	Accent       string `toml:"accent"`
 	Icons        bool   `toml:"icons"`
+	IconBackdrop bool   `toml:"icon_backdrop"`
 	SnippetLines int    `toml:"snippet_lines"`
 	ShowSource   bool   `toml:"show_source"`
 }
@@ -91,11 +93,13 @@ func Default() Config {
 			SafeSearch:      "moderate",
 			Region:          "",
 			TimeoutSeconds:  12,
-			CacheTTLSeconds: 300,
+			Cache:           true,
+			CacheTTLSeconds: 1800,
 		},
 		Theme: Theme{
 			Accent:       "#5f9ea0",
 			Icons:        true,
+			IconBackdrop: true,
 			SnippetLines: 2,
 			ShowSource:   false,
 		},
@@ -127,9 +131,9 @@ func (c Config) Timeout() time.Duration {
 	return time.Duration(c.General.TimeoutSeconds) * time.Second
 }
 
-// CacheTTL is how long a search result page stays cached; 0 or less disables the cache.
+// CacheTTL is how long a search result page stays cached; 0 means caching is off.
 func (c Config) CacheTTL() time.Duration {
-	if c.General.CacheTTLSeconds <= 0 {
+	if !c.General.Cache || c.General.CacheTTLSeconds <= 0 {
 		return 0
 	}
 	return time.Duration(c.General.CacheTTLSeconds) * time.Second

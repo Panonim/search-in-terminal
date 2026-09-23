@@ -79,9 +79,59 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  installer:
+    name: installer
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Reuse installer from previous release
+        id: reuse
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ] && git diff --quiet "$PREV" "$TAG" -- install.go \
+            && gh release download "$PREV" --repo "$GITHUB_REPOSITORY" --pattern 'sit-install_*' --dir dist; then
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+            echo "install.go unchanged since ${PREV}, reusing its installers"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.reuse.outputs.reused != 'true'
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build installers
+        if: steps.reuse.outputs.reused != 'true'
+        run: |
+          set -euo pipefail
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}"
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then EXT=.exe; fi
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+              go build -trimpath -ldflags "-s -w" -o "dist/sit-install_${GOOS}_${GOARCH}${EXT}" install.go
+          done
+
+      - run: ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-installer
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: release
-    needs: build
+    needs: [build, installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write

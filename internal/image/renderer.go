@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"io"
 	"net/http"
@@ -38,6 +39,8 @@ type Renderer struct {
 	cacheDir     string
 	cells        int
 	enabled      bool
+	backdrop     Backdrop
+	bg           color.NRGBA
 	cellW, cellH int
 	client       *http.Client
 
@@ -46,7 +49,8 @@ type Renderer struct {
 	bad  map[string]bool
 }
 
-func NewRenderer(p Protocol, cacheDir string, cells int, enabled bool) *Renderer {
+// bg is the terminal background, used to pick the backdrop colour and flatten sixel transparency.
+func NewRenderer(p Protocol, cacheDir string, cells int, enabled, backdrop bool, bg color.NRGBA) *Renderer {
 	if cells < 1 {
 		cells = 2
 	}
@@ -56,6 +60,8 @@ func NewRenderer(p Protocol, cacheDir string, cells int, enabled bool) *Renderer
 		cacheDir: cacheDir,
 		cells:    cells,
 		enabled:  enabled && p != ProtocolNone,
+		backdrop: backdropFor(bg, backdrop),
+		bg:       bg,
 		cellW:    w,
 		cellH:    h,
 		client:   &http.Client{Timeout: 8 * time.Second},
@@ -77,6 +83,9 @@ func cellPx() (int, int) {
 				return w, h
 			}
 		}
+	}
+	if w, h, ok := termCellPx(); ok && w <= 200 && h <= 200 {
+		return w, h
 	}
 	return 10, 20
 }
@@ -114,7 +123,7 @@ func (r *Renderer) Fetch(ctx context.Context, pageURL, faviconURL string) error 
 			last = err
 			continue
 		}
-		scaled := scale(m, r.cells*r.cellW, r.cellH)
+		scaled := withBackdrop(m, r.cells*r.cellW, r.cellH, r.backdrop)
 		if err := r.save(host, scaled); err != nil {
 			return err
 		}
@@ -201,8 +210,12 @@ func scale(src image.Image, w, h int) image.Image {
 	return dst
 }
 
+// cachePath is empty when the disk cache is off, so reads fail instead of hitting the working directory.
 func (r *Renderer) cachePath(host string) string {
-	sum := sha256.Sum256([]byte(host))
+	if r.cacheDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%dx%d", host, r.backdrop, r.cells*r.cellW, r.cellH)))
 	return filepath.Join(r.cacheDir, hex.EncodeToString(sum[:])[:16]+".png")
 }
 
@@ -294,11 +307,12 @@ func (r *Renderer) encodeSixel(m image.Image) (string, error) {
 	var buf bytes.Buffer
 	enc := sixel.NewEncoder(&buf)
 	enc.Transparent = true
-	if err := enc.Encode(m); err != nil {
+	if err := enc.Encode(flatten(m, r.bg)); err != nil {
 		return "", err
 	}
-	// Sixel cursor handling differs per terminal, so save and restore it and advance by hand.
-	return passthrough("\x1b7"+buf.String()+"\x1b8") + strings.Repeat(" ", r.cells), nil
+	// Print spaces first so width math counts the cells, then step back, draw the image and advance by hand.
+	return strings.Repeat(" ", r.cells) + fmt.Sprintf("\x1b[%dD", r.cells) +
+		passthrough("\x1b7"+buf.String()+"\x1b8") + fmt.Sprintf("\x1b[%dC", r.cells), nil
 }
 
 // passthrough wraps escape sequences for tmux, which otherwise swallows them.
