@@ -149,10 +149,59 @@ func TestNextCyclesBackends(t *testing.T) {
 	}
 }
 
-func TestBraveNeedsKey(t *testing.T) {
+func serveBraveWeb(t *testing.T, h http.HandlerFunc) {
 	t.Setenv("SIT_BRAVE_API_KEY", "")
 	t.Setenv("BRAVE_API_KEY", "")
-	if ok, _ := newBrave(testConfig()).Ready(); ok {
-		t.Error("brave should not be ready without a key")
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	old := braveWebEndpoint
+	braveWebEndpoint = srv.URL
+	t.Cleanup(func() { braveWebEndpoint = old })
+}
+
+func TestBraveWebWithoutKey(t *testing.T) {
+	var gotQuery, gotCookie string
+	serveBraveWeb(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery, gotCookie = r.URL.RawQuery, r.Header.Get("Cookie")
+		w.Write([]byte(`<div class="snippet svelte-x" data-pos="1" data-type="web" data-keynav="true">` +
+			`<a href="https://github.com/charmbracelet/bubbletea?a=1&amp;b=2" class="svelte-y l1">` +
+			`<img src="https://imgs.search.brave.com/fav" alt="" class="favicon size-m"/>` +
+			`<div class="title search-snippet-title line-clamp-1" title="x">Bubble <strong>Tea</strong></div></a>` +
+			`<div class="generic-snippet svelte-z"><div class="content t-primary"><!---->A TUI &amp; framework<!----></div></div></div>` +
+			`<div class="snippet svelte-x" data-pos="2" data-type="web"><a href="https://example.com/">` +
+			`<div class="title search-snippet-title">No snippet</div></a></div>`))
+	})
+
+	b := newBrave(testConfig())
+	if ok, _ := b.Ready(); !ok {
+		t.Fatal("brave should be ready without a key")
+	}
+	results, err := b.Search(context.Background(), "bubbletea", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results", len(results))
+	}
+	r := results[0]
+	if r.Title != "Bubble Tea" || r.URL != "https://github.com/charmbracelet/bubbletea?a=1&b=2" ||
+		r.Snippet != "A TUI & framework" || r.FaviconURL != "https://imgs.search.brave.com/fav" {
+		t.Errorf("unexpected result %+v", r)
+	}
+	if results[1].Snippet != "" {
+		t.Errorf("second snippet = %q", results[1].Snippet)
+	}
+	if gotQuery != "offset=1&q=bubbletea&source=web" || gotCookie != "safesearch=moderate" {
+		t.Errorf("query = %q, cookie = %q", gotQuery, gotCookie)
+	}
+}
+
+func TestBraveWebRateLimited(t *testing.T) {
+	serveBraveWeb(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+
+	if _, err := newBrave(testConfig()).Search(context.Background(), "x", 1); err == nil {
+		t.Error("expected rate-limit error")
 	}
 }

@@ -52,6 +52,25 @@ func press(m Model, key string) Model {
 	return next.(Model)
 }
 
+func TestInitialQueryResultsAreKept(t *testing.T) {
+	t.Setenv("SIT_CONFIG_DIR", t.TempDir())
+	t.Setenv("SIT_CACHE_DIR", t.TempDir())
+	cfg := config.Default()
+	cfg.Theme.Icons = false
+	m, err := New(cfg, "test", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.loading {
+		t.Error("initial query should start loading")
+	}
+	// The initial search is the model's first request, so its reply carries reqID 1.
+	next, _ := m.Update(resultsMsg{reqID: 1, page: 1, results: []backend.Result{{Title: "r", URL: "https://example.com"}}})
+	if got := len(next.(Model).results); got != 1 {
+		t.Errorf("initial query results dropped, got %d", got)
+	}
+}
+
 func TestResultsBlurInputAndNavigate(t *testing.T) {
 	m := withResults(t, newTestModel(t), 5)
 	if m.input.Focused() {

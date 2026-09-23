@@ -25,6 +25,8 @@ open_command = ""
 accent = "#5f9ea0"
 # Draw favicons when the terminal supports a graphics protocol.
 icons = true
+# Put a soft circle behind favicons that would blend into the terminal background.
+icon_backdrop = true
 # Snippet lines shown under each result.
 snippet_lines = 2
 # Show which engine produced each result.
@@ -169,6 +171,10 @@ If you would rather store it, `backends.brave.api_key` works too; the config fil
 permissions and the key is masked in `sit config show` and in the settings panel. The key is sent in the
 `X-Subscription-Token` header only - never in a URL, never logged.
 
+Without a key, the backend scrapes `search.brave.com` instead and shows as `brave (web)`. Like `ddg`, this is
+unofficial and best-effort: it can break when the markup changes, and Brave rate-limits it after a handful of
+quick searches. Region is ignored in this mode. Set a key if you need something dependable.
+
 ## DuckDuckGo
 
 The `ddg` backend has no API key and no setup: it scrapes DuckDuckGo's Lite/HTML endpoints. This is
@@ -178,8 +184,10 @@ you a rate-limit page. Use SearXNG or Brave if you need something dependable.
 ## Terminal graphics
 
 Favicons are fetched once, downscaled and cached, then drawn with whichever protocol your terminal
-speaks. Detection is purely environment-based - sit never queries the terminal, because the reply would
-corrupt the TUI's input stream.
+speaks. Protocol detection is purely environment-based - sit never queries the terminal for it, because
+the reply would corrupt the TUI's input stream. The one exception is the background colour, asked once
+before the TUI starts, so `theme.icon_backdrop` can put a light circle behind dark icons on a dark
+terminal and a dark circle behind light icons on a light one.
 
 | Terminal | Protocol | Detected from |
 | --- | --- | --- |

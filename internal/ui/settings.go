@@ -8,7 +8,6 @@ import (
 
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
-	img "github.com/Panonim/search-in-terminal/internal/image"
 )
 
 type settingsModel struct {
@@ -116,7 +115,7 @@ func (m Model) applySettings(save bool) (tea.Model, tea.Cmd) {
 	m.settings.styles = m.styles
 	m.settings.dirty = false
 	m.settings.msg = "saved to " + config.Path()
-	m.renderer = img.NewRenderer(img.Detect(), config.FaviconDir(), iconWidth, cfg.Theme.Icons)
+	m.renderer = newRenderer(cfg, m.bg)
 
 	var cmd tea.Cmd
 	if backendChanged {
