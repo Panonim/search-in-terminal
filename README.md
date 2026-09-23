@@ -91,8 +91,11 @@ Inside the settings panel:
 
 | Key | Action |
 | --- | --- |
-| <kbd>j</kbd> <kbd>k</kbd> | move between settings |
-| <kbd>Space</kbd> / <kbd>←</kbd> <kbd>→</kbd> | cycle a boolean or enum value |
+| <kbd>j</kbd> <kbd>k</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> | move between settings |
+| <kbd>h</kbd> <kbd>l</kbd> / <kbd>←</kbd> <kbd>→</kbd> | move to the neighbouring column |
+| <kbd>1</kbd>–<kbd>6</kbd> | jump to a numbered section |
+| <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> | jump to the next / previous section |
+| <kbd>Space</kbd> | cycle a boolean or enum value |
 | <kbd>Enter</kbd> | edit a text value, or toggle a boolean/enum |
 | <kbd>Ctrl+s</kbd> or <kbd>w</kbd> | save to the config file |
 | <kbd>Ctrl+r</kbd> | restore defaults (not saved until you save) |

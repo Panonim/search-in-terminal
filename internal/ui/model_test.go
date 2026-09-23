@@ -118,8 +118,21 @@ func TestHelpAndSettingsPanes(t *testing.T) {
 	if m.pane != paneSettings {
 		t.Fatal(", should open settings")
 	}
-	if !strings.Contains(m.vp.View(), "general.backend") {
+	if !strings.Contains(m.vp.View(), "results_per_page") {
 		t.Error("settings pane missing its fields")
+	}
+	m = press(m, "tab")
+	if f := m.settings.fields[m.settings.idx]; f.Key != "theme.accent" {
+		t.Errorf("tab should jump to the next section, got %s", f.Key)
+	}
+	m = press(m, "3")
+	if f := m.settings.fields[m.settings.idx]; f.Key != "backends.degoog.instance" {
+		t.Errorf("3 should jump to the third section, got %s", f.Key)
+	}
+	for _, line := range strings.Split(m.settings.view(50, 20), "\n") {
+		if w := ansi.StringWidth(line); w > 50 {
+			t.Errorf("settings line wider than the pane (%d): %q", w, line)
+		}
 	}
 }
 

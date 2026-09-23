@@ -126,7 +126,7 @@ func field(key, desc string, kind Kind, get func(*Config) string, set func(*Conf
 	return Field{Key: key, Desc: desc, Kind: kind, Options: opts, get: get, set: set}
 }
 
-// Fields returns every editable setting in display order.
+// Fields returns every editable setting in display order, keeping each key prefix contiguous for the settings sections.
 func Fields() []Field {
 	g1, s1 := str(func(c *Config) *string { return &c.General.Backend })
 	g2, s2 := num(func(c *Config) *int { return &c.General.ResultsPerPage })
@@ -162,22 +162,17 @@ func Fields() []Field {
 		field("theme.snippet_lines", "Snippet lines per result", KindInt, t3, u3),
 		field("theme.show_source", "Show the backend name on each result", KindBool, t4, u4),
 		field("backends.degoog.instance", "Degoog instance URL (or $SIT_DEGOOG_URL)", KindString, d1, w1),
+		secret(field("backends.degoog.api_key", "Degoog API key when the instance is protected (or $SIT_DEGOOG_API_KEY)", KindString, d2, w2)),
 		field("backends.degoog.type", "Degoog search tab, e.g. web, images, news", KindString, d3, w3),
 		field("backends.degoog.engines", "Degoog engine IDs to pin, comma separated (empty = instance default)", KindList, d4, w4),
 		field("backends.searxng.instance", "SearXNG instance URL", KindString, b2, v2),
 		field("backends.searxng.fallbacks", "Public SearXNG instances to try next, comma separated", KindList, b3, v3),
+		secret(field("backends.brave.api_key", "Brave Search API key (or $SIT_BRAVE_API_KEY)", KindString, b1, v1)),
 	}
-	brave := field("backends.brave.api_key", "Brave Search API key (or $SIT_BRAVE_API_KEY)", KindString, b1, v1)
-	brave.Secret = true
-	degoogKey := field("backends.degoog.api_key", "Degoog API key when the instance is protected (or $SIT_DEGOOG_API_KEY)", KindString, d2, w2)
-	degoogKey.Secret = true
-	fields = append(fields, brave, degoogKey)
-
-	for _, k := range keyFieldOrder() {
-		fields = append(fields, k)
-	}
-	return fields
+	return append(fields, keyFieldOrder()...)
 }
+
+func secret(f Field) Field { f.Secret = true; return f }
 
 func keyFieldOrder() []Field {
 	specs := []struct {
