@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -114,13 +113,11 @@ func (b *brave) searchAPI(ctx context.Context, query string, page int) ([]Result
 	return out, nil
 }
 
-var (
-	braveBlockRE   = regexp.MustCompile(`<div class="snippet[^"]*"[^>]*data-type="web"`)
-	braveLinkRE    = regexp.MustCompile(`<a href="(https?://[^"]+)"`)
-	braveTitleRE   = regexp.MustCompile(`(?s)class="[^"]*search-snippet-title[^"]*"[^>]*>(.*?)</div>`)
-	braveSnippetRE = regexp.MustCompile(`(?s)class="generic-snippet[^"]*"[^>]*>\s*<div[^>]*>(.*?)</div>`)
-	braveFaviconRE = regexp.MustCompile(`<img[^>]*\ssrc="(https://imgs\.search\.brave\.com/[^"]+)"`)
-)
+var braveScraper = scraper{
+	source: "brave",
+	own:    []string{"brave.com", "brave.app"},
+	block:  regexp.MustCompile(`(?i)\bdata-type\s*=\s*["']?web\b`),
+}
 
 func (b *brave) searchWeb(ctx context.Context, query string, page int) ([]Result, error) {
 	q := url.Values{}
@@ -148,35 +145,7 @@ func (b *brave) searchWeb(ctx context.Context, query string, page int) ([]Result
 	if err != nil {
 		return nil, err
 	}
-	return parseBraveWeb(string(raw)), nil
-}
-
-func parseBraveWeb(body string) []Result {
-	starts := braveBlockRE.FindAllStringIndex(body, -1)
-	out := make([]Result, 0, len(starts))
-	for i, s := range starts {
-		end := len(body)
-		if i+1 < len(starts) {
-			end = starts[i+1][0]
-		}
-		block := body[s[0]:end]
-		link := braveLinkRE.FindStringSubmatch(block)
-		title := braveTitleRE.FindStringSubmatch(block)
-		if link == nil || title == nil {
-			continue
-		}
-		r := Result{Title: clean(title[1]), URL: html.UnescapeString(link[1]), Source: "brave"}
-		if m := braveSnippetRE.FindStringSubmatch(block); m != nil {
-			r.Snippet = clean(m[1])
-		}
-		if m := braveFaviconRE.FindStringSubmatch(block); m != nil {
-			r.FaviconURL = m[1]
-		}
-		if r.Title != "" {
-			out = append(out, r)
-		}
-	}
-	return out
+	return braveScraper.parse(string(raw)), nil
 }
 
 func braveSafe(level string) string {
