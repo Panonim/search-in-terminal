@@ -126,7 +126,7 @@ func TestSearXNGFallsBackToNextInstance(t *testing.T) {
 func TestParseDDGLite(t *testing.T) {
 	body := `<tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F&amp;rut=x" class='result-link'>The Go <b>Programming</b> Language</a></td></tr>
 	<tr><td class='result-snippet'>Build simple, secure &amp; scalable systems.</td></tr>`
-	results := parseDDG(body, liteLinkRE, liteSnippetRE)
+	results := ddgScraper.parse(body)
 	if len(results) != 1 {
 		t.Fatalf("want 1 result, got %d", len(results))
 	}
@@ -138,6 +138,55 @@ func TestParseDDGLite(t *testing.T) {
 	}
 	if results[0].Snippet != "Build simple, secure & scalable systems." {
 		t.Errorf("snippet = %q", results[0].Snippet)
+	}
+}
+
+// Class names, attribute order and quoting all changed; the scraper should still find the result by shape.
+func TestScraperSurvivesMarkupChanges(t *testing.T) {
+	body := `<nav><a href="https://duckduckgo.com/settings">Settings</a></nav>
+	<article data-x=1><h3 class=headline><A class="lnk" data-id=7 HREF='//duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2F'>The Go <em>Programming</em> Language</A></h3>
+	<img alt="" src="//icons.example/go.ico" class="site-icon">
+	<a href="https://go.dev/"><cite>go.dev</cite></a>
+	<p class="desc">Build simple, <b>secure</b> &amp; scalable systems.</p></article>
+	<article><a href="https://duckduckgo.com/y.js?ad=1">Sponsored thing</a></article>
+	<article><a href="https://example.com/">Example Domain</a><div>Short</div></article>
+	<article><a href="https://example.org/">Another</a><p>Some words about another page.</p></article>
+	<footer><a href="https://status.example.net/">Status</a></footer>`
+	got := ddgScraper.parse(body)
+	if len(got) != 3 {
+		t.Fatalf("want 3 results, got %+v", got)
+	}
+	r := got[0]
+	if r.URL != "https://go.dev/" || r.Title != "The Go Programming Language" ||
+		r.Snippet != "Build simple, secure & scalable systems." || r.FaviconURL != "https://icons.example/go.ico" {
+		t.Errorf("unexpected result %+v", r)
+	}
+	if got[1].URL != "https://example.com/" || got[1].Snippet != "" {
+		t.Errorf("second result %+v", got[1])
+	}
+}
+
+func TestBraveScraperFallsBackWithoutBlockMarker(t *testing.T) {
+	body := `<section><div class="result"><a href="https://github.com/charmbracelet/bubbletea">` +
+		`<span class="site">github.com › charmbracelet</span><div class="heading-title">Bubble Tea</div></a>` +
+		`<p>A powerful little TUI framework for Go.</p>` +
+		`<a class="source" href="https://reddit.com/r/golang/x">More on reddit.com</a></div>` +
+		`<footer><a href="https://search.brave.com/help">Help</a></footer></section>`
+	got := braveScraper.parse(body)
+	if len(got) != 1 || got[0].Title != "Bubble Tea" || got[0].Snippet != "A powerful little TUI framework for Go." {
+		t.Errorf("results = %+v", got)
+	}
+}
+
+func TestNextFormFromButtonText(t *testing.T) {
+	body := `<form method=post><button>Previous</button><input name="s" type="hidden" value="0"></form>
+	<form method=post><input value=10 name=s type=hidden><input type=hidden name='vqd' value='4-x'><button type=submit>Next</button></form>`
+	got := nextForm(body)
+	if got["s"] != "10" || got["vqd"] != "4-x" {
+		t.Errorf("next form = %v", got)
+	}
+	if nextForm(`<form><button>Previous</button><input type=hidden name=s value=0></form>`) != nil {
+		t.Error("a previous-only form is not a next page")
 	}
 }
 

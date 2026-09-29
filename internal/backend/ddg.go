@@ -37,13 +37,13 @@ var (
 )
 
 var (
-	ddgNextRE     = regexp.MustCompile(`(?is)<form[^>]*>\s*<input type="submit"[^>]*value="Next[^"]*"[^>]*>(.*?)</form>`)
-	ddgHiddenRE   = regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)"`)
-	liteLinkRE    = regexp.MustCompile(`(?is)<a\s+[^>]*href=["']([^"']+)["'][^>]*class=['"]result-link['"][^>]*>(.*?)</a>`)
-	liteSnippetRE = regexp.MustCompile(`(?is)<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>`)
-	htmlLinkRE    = regexp.MustCompile(`(?is)<a\s+[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>`)
-	htmlSnippetRE = regexp.MustCompile(`(?is)class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</a>`)
+	formRE  = regexp.MustCompile(`(?is)<form\b.*?</form\s*>`)
+	inputRE = regexp.MustCompile(`(?is)<(?:input|button)\b[^>]*>`)
+	nextRE  = regexp.MustCompile(`(?i)\bnext\b|»|&gt;|>`)
+	prevRE  = regexp.MustCompile(`(?i)\bprev`)
 )
+
+var ddgScraper = scraper{source: "ddg", own: []string{"duckduckgo.com"}, unwrap: unwrapDDG}
 
 func (d *ddg) Search(ctx context.Context, query string, page int) ([]Result, error) {
 	form, err := d.form(ctx, query, page)
@@ -55,12 +55,12 @@ func (d *ddg) Search(ctx context.Context, query string, page int) ([]Result, err
 	if err != nil {
 		return nil, err
 	}
-	results := parseDDG(body, liteLinkRE, liteSnippetRE)
+	results := ddgScraper.parse(body)
 	if len(results) == 0 {
 		if body, err = d.post(ctx, ddgHTMLEndpoint, form); err != nil {
 			return nil, err
 		}
-		results = parseDDG(body, htmlLinkRE, htmlSnippetRE)
+		results = ddgScraper.parse(body)
 	}
 	if len(results) == 0 && strings.Contains(body, "anomaly") {
 		return nil, errors.New("duckduckgo: blocked this request, try again later or switch backend")
@@ -91,14 +91,46 @@ func (d *ddg) form(ctx context.Context, query string, page int) (url.Values, err
 
 func (d *ddg) remember(query string, page int, body string) {
 	cursor := ""
-	if m := ddgNextRE.FindStringSubmatch(body); m != nil {
+	if fields := nextForm(body); fields != nil {
 		form := d.base(query)
-		for _, in := range ddgHiddenRE.FindAllStringSubmatch(m[1], -1) {
-			form.Set(in[1], html.UnescapeString(in[2]))
+		for k, v := range fields {
+			form.Set(k, v)
 		}
 		cursor = form.Encode()
 	}
 	d.SetCursor(query, page, cursor)
+}
+
+// nextForm finds the form behind a "Next" button and returns its hidden fields, or nil on the last page.
+func nextForm(body string) map[string]string {
+	for _, f := range formRE.FindAllString(body, -1) {
+		isNext := false
+		fields := map[string]string{}
+		for _, in := range inputRE.FindAllString(f, -1) {
+			switch strings.ToLower(attr(in, "type")) {
+			case "hidden":
+				if name := attr(in, "name"); name != "" {
+					fields[name] = html.UnescapeString(attr(in, "value"))
+				}
+			case "submit", "button", "":
+				if isNextLabel(html.UnescapeString(attr(in, "value") + " " + attr(in, "aria-label"))) {
+					isNext = true
+				}
+			}
+		}
+		// Buttons may carry their label as inner text instead of a value.
+		if !isNext {
+			isNext = isNextLabel(strings.Join(texts(f), " "))
+		}
+		if isNext && len(fields) > 0 {
+			return fields
+		}
+	}
+	return nil
+}
+
+func isNextLabel(label string) bool {
+	return nextRE.MatchString(label) && !prevRE.MatchString(label)
 }
 
 func (d *ddg) Cursor(query string, page int) string {
@@ -139,41 +171,15 @@ func (d *ddg) post(ctx context.Context, endpoint string, form url.Values) (strin
 	return string(raw), err
 }
 
-func parseDDG(body string, linkRE, snippetRE *regexp.Regexp) []Result {
-	links := linkRE.FindAllStringSubmatch(body, -1)
-	snippets := snippetRE.FindAllStringSubmatch(body, -1)
-	out := make([]Result, 0, len(links))
-	for i, m := range links {
-		link := unwrapDDG(m[1])
-		title := clean(m[2])
-		if link == "" || title == "" || strings.HasPrefix(link, "https://duckduckgo.com/y.js") {
-			continue
-		}
-		snippet := ""
-		if i < len(snippets) {
-			snippet = clean(snippets[i][1])
-		}
-		out = append(out, Result{Title: title, URL: link, Snippet: snippet, Source: "ddg"})
-	}
-	return out
-}
-
-// unwrapDDG turns a //duckduckgo.com/l/?uddg=... redirect into the real target.
 func unwrapDDG(href string) string {
-	if strings.HasPrefix(href, "//") {
-		href = "https:" + href
-	}
 	u, err := url.Parse(href)
 	if err != nil {
-		return ""
+		return href
 	}
 	if target := u.Query().Get("uddg"); target != "" {
 		return target
 	}
-	if !strings.HasPrefix(u.Scheme, "http") {
-		return ""
-	}
-	return u.String()
+	return href
 }
 
 func ddgSafe(level string) string {
