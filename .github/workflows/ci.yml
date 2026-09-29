@@ -3,7 +3,9 @@ name: ci
 on:
   push:
     branches: [main]
-  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
 
 permissions:
   contents: read
