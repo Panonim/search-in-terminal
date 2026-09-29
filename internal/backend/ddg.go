@@ -148,7 +148,12 @@ func (d *ddg) SetCursor(query string, page int, cursor string) {
 func ddgKey(query string, page int) string { return fmt.Sprint(page, "\x00", query) }
 
 func (d *ddg) base(query string) url.Values {
-	return url.Values{"q": {query}, "kl": {ddgRegion(d.cfg.General.Region)}, "kp": {ddgSafe(d.cfg.General.SafeSearch)}}
+	q := parseQuery(query)
+	form := url.Values{"q": {q.text}, "kl": {ddgRegion(d.cfg.General.Region)}, "kp": {ddgSafe(d.cfg.General.SafeSearch)}}
+	if df := q.span(".."); df != "" {
+		form.Set("df", df)
+	}
+	return form
 }
 
 func (d *ddg) post(ctx context.Context, endpoint string, form url.Values) (string, error) {

@@ -67,8 +67,12 @@ func (b *brave) searchAPI(ctx context.Context, query string, page int) ([]Result
 	if count > 20 {
 		count = 20
 	}
+	pq := parseQuery(query)
 	q := url.Values{}
-	q.Set("q", query)
+	q.Set("q", pq.text)
+	if span := pq.span("to"); span != "" {
+		q.Set("freshness", span)
+	}
 	q.Set("count", strconv.Itoa(count))
 	q.Set("offset", strconv.Itoa(max(0, page-1)))
 	q.Set("safesearch", braveSafe(b.cfg.General.SafeSearch))
@@ -120,9 +124,13 @@ var braveScraper = scraper{
 }
 
 func (b *brave) searchWeb(ctx context.Context, query string, page int) ([]Result, error) {
+	pq := parseQuery(query)
 	q := url.Values{}
-	q.Set("q", query)
+	q.Set("q", pq.text)
 	q.Set("source", "web")
+	if span := pq.span("to"); span != "" {
+		q.Set("tf", span)
+	}
 	if page > 1 {
 		q.Set("offset", strconv.Itoa(page-1))
 	}

@@ -4,8 +4,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -18,6 +20,8 @@ type Config struct {
 	Theme    Theme    `toml:"theme"`
 	Keys     Keys     `toml:"keys"`
 	Backends Backends `toml:"backends"`
+	// Bangs maps a shortcut such as "gh" to a search URL with %s where the query goes.
+	Bangs map[string]string `toml:"bangs,omitempty"`
 }
 
 type General struct {
@@ -58,10 +62,21 @@ type Backends struct {
 	Brave   Brave   `toml:"brave"`
 	SearXNG SearXNG `toml:"searxng"`
 	Degoog  Degoog  `toml:"degoog"`
+	Kagi    Kagi    `toml:"kagi"`
+	Fanout  Fanout  `toml:"fanout"`
+}
+
+type Fanout struct {
+	Engines []string `toml:"engines"`
 }
 
 type Brave struct {
 	APIKey string `toml:"api_key"`
+}
+
+type Kagi struct {
+	APIKey       string `toml:"api_key"`
+	SessionToken string `toml:"session_token"`
 }
 
 type SearXNG struct {
@@ -120,6 +135,7 @@ func Default() Config {
 		Backends: Backends{
 			SearXNG: SearXNG{Instance: "http://localhost:8080", Fallbacks: DefaultSearxFallbacks},
 			Degoog:  Degoog{Instance: "http://localhost:4444", Type: "web"},
+			Fanout:  Fanout{Engines: []string{"ddg", "brave"}},
 		},
 	}
 }
@@ -142,6 +158,19 @@ func (c Config) CacheTTL() time.Duration {
 // BraveKey prefers the environment so keys need not be written to disk.
 func (c Config) BraveKey() string {
 	return envOr(c.Backends.Brave.APIKey, "SIT_BRAVE_API_KEY", "BRAVE_API_KEY")
+}
+
+func (c Config) KagiKey() string {
+	return envOr(c.Backends.Kagi.APIKey, "SIT_KAGI_API_KEY", "KAGI_API_KEY")
+}
+
+// KagiSession accepts either the bare token or the whole session link from Kagi's account settings.
+func (c Config) KagiSession() string {
+	v := strings.TrimSpace(envOr(c.Backends.Kagi.SessionToken, "SIT_KAGI_SESSION", "KAGI_SESSION_TOKEN"))
+	if u, err := url.Parse(v); err == nil && u.Query().Get("token") != "" {
+		return u.Query().Get("token")
+	}
+	return v
 }
 
 func (c Config) DegoogKey() string {

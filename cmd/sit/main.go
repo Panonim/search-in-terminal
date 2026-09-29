@@ -71,7 +71,16 @@ func run(args []string) error {
 	if strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("unknown flag %q, see `sit help`", args[0])
 	}
-	return ui.Run(cfg, version, strings.Join(args, " "))
+	query := strings.Join(args, " ")
+	if u, ok := cfg.Bang(query); ok {
+		return openBang(cfg, u)
+	}
+	return ui.Run(cfg, version, query)
+}
+
+func openBang(cfg config.Config, u string) error {
+	fmt.Println(u)
+	return open.URL(u, cfg.General.OpenCommand)
 }
 
 func usage() {
@@ -90,8 +99,17 @@ usage:
   sit doctor                check config, network and terminal support
   sit version               print version information
 
+query syntax:
+  "exact phrase"            results must contain the phrase
+  site:go.dev -site:x.com   only / never results from a site
+  -word -"a phrase"         drop results mentioning a word or phrase
+  intitle: inurl: filetype: match the title, URL or file extension
+  a OR b                    need only one of the required parts
+  after:2024-01-01          only pages from this date on (before: works too)
+  !name                     open a bang from [bangs] instead of searching
+
 search flags:
-  -b, --backend <name>      ddg | degoog | searxng | brave
+  -b, --backend <name>      ddg | degoog | searxng | brave | kagi | fanout
   -n, --limit <count>       maximum results to print
   -p, --page <number>       result page
       --json                print JSON instead of text
@@ -150,6 +168,10 @@ func cmdSearch(cfg config.Config, args []string) error {
 	if query == "" {
 		return fmt.Errorf("usage: sit search <query>")
 	}
+	if u, ok := cfg.Bang(query); ok {
+		fmt.Println(u)
+		return nil
+	}
 
 	results, err := searchOnce(cfg, name, query, page, limit)
 	if err != nil {
@@ -178,6 +200,9 @@ func cmdOpen(cfg config.Config, args []string) error {
 	query := strings.Join(args, " ")
 	if query == "" {
 		return fmt.Errorf("usage: sit open <query>")
+	}
+	if u, ok := cfg.Bang(query); ok {
+		return openBang(cfg, u)
 	}
 	results, err := searchOnce(cfg, cfg.General.Backend, query, 1, 1)
 	if err != nil {
@@ -237,7 +262,7 @@ func cmdConfig(cfg config.Config, args []string) error {
 		fmt.Println(config.Path())
 		return nil
 	case "show":
-		for _, f := range config.Fields() {
+		for _, f := range append(config.Fields(), cfg.BangFields()...) {
 			fmt.Printf("%-30s %s\n", f.Key, f.Display(&cfg))
 		}
 		return nil
