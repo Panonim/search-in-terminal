@@ -6,7 +6,7 @@ with `sit config init`. Favicons and search results are cached under `~/.cache/s
 
 ```toml
 [general]
-# Backend used on startup: ddg | degoog | searxng | brave
+# Backend used on startup: ddg | degoog | searxng | brave | kagi | fanout
 backend = "ddg"
 # Results requested per page.
 results_per_page = 20
@@ -54,6 +54,16 @@ quit = "q"
 # Prefer the environment; $SIT_BRAVE_API_KEY and $BRAVE_API_KEY both win over this value.
 api_key = ""
 
+[backends.kagi]
+# Official API key; $SIT_KAGI_API_KEY and $KAGI_API_KEY win over this value.
+api_key = ""
+# Used when there is no API key: your session link or its token; $SIT_KAGI_SESSION and $KAGI_SESSION_TOKEN win.
+session_token = ""
+
+[backends.fanout]
+# Backends the fanout backend queries at the same time.
+engines = ["ddg", "brave"]
+
 [backends.degoog]
 # Your Degoog instance; $SIT_DEGOOG_URL and $DEGOOG_URL win over this value.
 instance = "http://localhost:4444"
@@ -75,6 +85,11 @@ fallbacks = [
   "https://searx.tiekoetter.com",
   "https://paulgo.io",
 ]
+
+# Bang shortcuts: none ship built in. %s is replaced with the rest of the query.
+[bangs]
+gh = "https://github.com/search?q=%s"
+w = "https://en.wikipedia.org/wiki/Special:Search?search=%s"
 ```
 
 Everything here is also reachable from the in-app settings panel (<kbd>,</kbd>) and from
@@ -178,6 +193,75 @@ permissions and the key is masked in `sit config show` and in the settings panel
 Without a key, the backend scrapes `search.brave.com` instead and shows as `brave (web)`. Like `ddg`, this is
 unofficial and best-effort: it can break when the markup changes, and Brave rate-limits it after a handful of
 quick searches. Region is ignored in this mode. Set a key if you need something dependable.
+
+## Kagi
+
+The `kagi` backend needs a Kagi account and works in one of two ways.
+
+With an API key from [kagi.com/api/keys](https://kagi.com/api/keys) it uses the official Search API
+(`POST /api/v1/search`), billed per search at your API rate:
+
+```sh
+export SIT_KAGI_API_KEY="…"   # or KAGI_API_KEY
+sit config set general.backend kagi
+```
+
+Without a key it reads `kagi.com/html/search` with your subscription's session and shows as `kagi (web)`.
+Copy the **Session Link** from Kagi's account settings and paste it whole; sit keeps only its token:
+
+```sh
+export SIT_KAGI_SESSION="https://kagi.com/search?token=…"   # or KAGI_SESSION_TOKEN
+```
+
+This mode is unofficial and best-effort like `ddg`. The token dies when you sign out of that session, change
+your password or leave it unused for 90 days; sit then says it expired. Safe search and region follow your
+Kagi account settings here, and the API serves at most 10 pages.
+
+## Fanout
+
+The `fanout` backend asks every backend in `backends.fanout.engines` at once, interleaves their results by
+rank and folds a page found by several engines into one result, whose source reads e.g. `ddg+brave`
+(`theme.show_source` shows it). A failing engine is skipped as long as another one answers.
+
+```sh
+sit config set backends.fanout.engines "ddg, brave, kagi"
+sit search -b fanout "zig allocators"
+```
+
+## Query syntax
+
+These work with every backend, fanout included:
+
+| Syntax | Effect |
+| --- | --- |
+| `"exact phrase"` | the words, in that order, appear in the title, snippet or URL |
+| `-word`, `-"some phrase"` | drop results mentioning the word or phrase |
+| `site:go.dev` | only results from that site and its subdomains; `site:github.com/golang` also checks the path |
+| `-site:pinterest.com` | never results from that site |
+| `intitle:word`, `intitle:"a phrase"` | the title holds the word or phrase; `-intitle:` drops those |
+| `inurl:docs` | the URL contains the text; `-inurl:` drops those |
+| `filetype:pdf`, `ext:pdf` | the URL ends in that extension; `-filetype:` drops those |
+| `a OR b` | the required parts above need only one match; several `site:` always mean any of them |
+| `after:2024-01-01`, `before:2024-06-30` | only pages published or updated in that range; either end can be left open |
+
+Everything but dates goes to the engine as typed, and sit also drops any result that breaks it, since not every
+engine honours every operator. Matching is on whole words and ignores case, so `-java` keeps JavaScript pages.
+sit can only see a result's title, snippet and URL, so an exact phrase that is only in the page body gets
+dropped. Plain words and `+word` are left to the engine, which may match a stem or synonym.
+
+Dates are sent as each engine's own date filter. SearXNG only knows the past day/week/month/year, so it gets the
+smallest of those covering `after:` and ignores `before:`.
+
+## Bangs
+
+A word like `!gh` in the query opens that site's own search in your browser instead of searching. None ship
+built in. The settings panel has a **bangs** card with a row per bang: edit a row's URL, clear it to remove the
+bang, or type `name=url` into the `+ add` row. The same lives under `[bangs]` in the config file (see above),
+and `sit config set bangs.gh "https://github.com/search?q=%s"` adds or changes one (an empty URL removes it).
+The bang can sit anywhere in the query. `sit search !gh bubbletea` prints the URL without opening it.
+
+DuckDuckGo and Brave run their own bangs server-side; sit refuses the redirect and tells you to define the bang
+yourself, rather than showing the destination page as results.
 
 ## DuckDuckGo
 

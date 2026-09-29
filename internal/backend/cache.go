@@ -189,11 +189,29 @@ func normalizeQuery(q string) string {
 	return strings.Join(words, " ")
 }
 
+// queryWords marks excluded and quoted words, so "go -rust" or `"go"` never share an entry with "go rust" or "go".
 func queryWords(q string) []string {
-	return strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+	var out []string
+	quoted := false
+	for _, f := range strings.Fields(q) {
+		mark := ""
+		if strings.HasPrefix(f, "-") {
+			mark = "-"
+		}
+		if quoted || strings.Contains(f, `"`) {
+			mark += `"`
+		}
+		for _, w := range splitWords(f) {
+			out = append(out, mark+w)
+		}
+		if strings.Count(f, `"`)%2 == 1 {
+			quoted = !quoted
+		}
+	}
+	return out
 }
+
+func wordMark(w string) string { return w[:len(w)-len(strings.TrimLeft(w, `-"`))] }
 
 // queryDistance pairs every word with a close unused word in the other query and sums the edits.
 func queryDistance(a, b []string) (int, bool) {
@@ -205,7 +223,7 @@ func queryDistance(a, b []string) (int, bool) {
 	for _, w := range a {
 		pick, pickDist := -1, 0
 		for i, v := range b {
-			if used[i] {
+			if used[i] || wordMark(w) != wordMark(v) {
 				continue
 			}
 			if d := editDistance(w, v); d <= allowedEdits(w) && (pick < 0 || d < pickDist) {

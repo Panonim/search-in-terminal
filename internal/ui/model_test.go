@@ -111,6 +111,49 @@ func TestTypingStaysInInput(t *testing.T) {
 	}
 }
 
+func TestBangsCard(t *testing.T) {
+	m := press(press(newTestModel(t), "esc"), ",")
+	m = press(m, "9")
+	if f := m.settings.fields[m.settings.idx]; f.Key != "bangs.+ add" {
+		t.Fatalf("9 should jump to the bangs card, got %s", f.Key)
+	}
+	m = press(press(press(m, "enter"), "gh=https://github.com/search?q=%s"), "enter")
+	if f := m.settings.fields[m.settings.idx]; f.Key != "bangs.+ add" || m.settings.fields[m.settings.idx-1].Key != "bangs.!gh" {
+		t.Fatalf("new bang row missing, at %s: %s", f.Key, m.settings.msg)
+	}
+	if !strings.Contains(m.vp.View(), "!gh") {
+		t.Error("bangs card should list !gh")
+	}
+	m = press(press(m, "w"), "k")
+	if m.cfg.Bangs["gh"] != "https://github.com/search?q=%s" {
+		t.Errorf("saved bangs = %v", m.cfg.Bangs)
+	}
+	m = press(m, "enter")
+	m.settings.input.SetValue("")
+	m = press(m, "enter")
+	if len(m.settings.cfg.Bangs) != 0 || m.settings.fields[m.settings.idx].Key != "bangs.+ add" {
+		t.Errorf("clearing the row should remove the bang: %v", m.settings.cfg.Bangs)
+	}
+	if len(m.cfg.Bangs) != 1 {
+		t.Error("an unsaved removal must not touch the live config")
+	}
+}
+
+func TestBangOpensSiteInsteadOfSearching(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.General.OpenCommand = "true"
+	m.cfg.Bangs = map[string]string{"gh": "https://github.com/search?q=%s"}
+	m.input.SetValue("!gh bubble tea")
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.loading || m.query != "" {
+		t.Error("a bang must not run a search")
+	}
+	if msg, ok := cmd().(statusMsg); !ok || msg.text != "opened https://github.com/search?q=bubble%20tea" {
+		t.Errorf("status = %+v", msg)
+	}
+}
+
 func TestHelpAndSettingsPanes(t *testing.T) {
 	m := withResults(t, newTestModel(t), 3)
 	m = press(m, "?")

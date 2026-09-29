@@ -194,7 +194,7 @@ func TestNextCyclesBackends(t *testing.T) {
 	if got := Next("ddg", 1); got != "degoog" {
 		t.Errorf("next after ddg = %q", got)
 	}
-	if got := Next("ddg", -1); got != "brave" {
+	if got := Next("ddg", -1); got != "fanout" {
 		t.Errorf("previous of ddg = %q", got)
 	}
 }
@@ -333,6 +333,22 @@ func TestDDGWalksForTokenWithoutCache(t *testing.T) {
 	res, err := newDDG(testConfig()).Search(context.Background(), "go", 3)
 	if err != nil || len(res) != 1 || res[0].URL != "https://d.example/" || *hits != 3 {
 		t.Errorf("page 3 = %+v, %v after %d hits", res, err, *hits)
+	}
+}
+
+func TestEngineBangRedirectIsNotParsed(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<a href="https://github.com/features">Features of the site we landed on</a>`))
+	}))
+	defer site.Close()
+	// 127.0.0.1 and localhost are different hosts to the redirect check.
+	offsite := strings.Replace(site.URL, "127.0.0.1", "localhost", 1)
+	serveBraveWeb(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, offsite+"/search?q=x", http.StatusFound)
+	})
+	res, err := newBrave(testConfig()).Search(context.Background(), "!gh x", 1)
+	if err == nil || !strings.Contains(err.Error(), "!bang") || len(res) != 0 {
+		t.Errorf("got %+v, %v", res, err)
 	}
 }
 

@@ -80,8 +80,12 @@ func (s *searxng) Search(ctx context.Context, query string, page int) ([]Result,
 }
 
 func (s *searxng) query(ctx context.Context, instance, query string, page int) ([]Result, error) {
+	pq := parseQuery(query)
 	q := url.Values{}
-	q.Set("q", query)
+	q.Set("q", pq.text)
+	if r := pq.recent(); r != "" {
+		q.Set("time_range", r)
+	}
 	q.Set("format", "json")
 	q.Set("pageno", strconv.Itoa(max(1, page)))
 	q.Set("safesearch", searxSafe(s.cfg.General.SafeSearch))

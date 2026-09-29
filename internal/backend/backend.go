@@ -3,6 +3,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -44,9 +45,24 @@ type Backend interface {
 }
 
 // Order is the backend cycle order used by Tab.
-var Order = []string{"ddg", "degoog", "searxng", "brave"}
+var Order = []string{"ddg", "degoog", "searxng", "brave", "kagi", "fanout"}
 
 func New(name string, cfg config.Config) (Backend, error) {
+	var b Backend
+	var err error
+	if strings.EqualFold(name, "fanout") {
+		b, err = newFanout(cfg)
+	} else {
+		b, err = newCached(name, cfg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return filtered{b}, nil
+}
+
+// newCached caches each engine on its own, so fanout members share entries with standalone searches.
+func newCached(name string, cfg config.Config) (Backend, error) {
 	b, err := newRaw(name, cfg)
 	if err != nil {
 		return nil, err
@@ -64,6 +80,8 @@ func newRaw(name string, cfg config.Config) (Backend, error) {
 		return newSearXNG(cfg), nil
 	case "degoog":
 		return newDegoog(cfg), nil
+	case "kagi":
+		return newKagi(cfg), nil
 	}
 	return nil, fmt.Errorf("unknown backend %q (have: %s)", name, strings.Join(Order, ", "))
 }
@@ -92,7 +110,18 @@ func Next(name string, step int) string {
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
 
 func httpClient(cfg config.Config) *http.Client {
-	return &http.Client{Timeout: cfg.Timeout()}
+	return &http.Client{Timeout: cfg.Timeout(), CheckRedirect: stayOnHost}
+}
+
+// stayOnHost stops at a redirect to another site, which is an engine running its own !bang rather than a results page.
+func stayOnHost(req *http.Request, via []*http.Request) error {
+	if !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+		return http.ErrUseLastResponse
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
 }
 
 func get(ctx context.Context, client *http.Client, rawURL string, headers map[string]string) (*http.Response, error) {
@@ -113,6 +142,9 @@ func statusError(backend string, resp *http.Response) error {
 		return fmt.Errorf("%s: rate limited (429), try another backend", backend)
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return fmt.Errorf("%s: rejected the request (%d)", backend, resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); resp.StatusCode/100 == 3 && loc != "" {
+		return fmt.Errorf("%s: sent the query to %s, likely its own !bang (add yours under bangs)", backend, hostOf(loc))
 	}
 	return fmt.Errorf("%s: http %d", backend, resp.StatusCode)
 }

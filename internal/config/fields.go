@@ -148,9 +148,12 @@ func Fields() []Field {
 	d2, w2 := str(func(c *Config) *string { return &c.Backends.Degoog.APIKey })
 	d3, w3 := str(func(c *Config) *string { return &c.Backends.Degoog.Type })
 	d4, w4 := list(func(c *Config) *[]string { return &c.Backends.Degoog.Engines })
+	k1, x1 := str(func(c *Config) *string { return &c.Backends.Kagi.APIKey })
+	k2, x2 := str(func(c *Config) *string { return &c.Backends.Kagi.SessionToken })
+	f1, y1 := list(func(c *Config) *[]string { return &c.Backends.Fanout.Engines })
 
 	fields := []Field{
-		field("general.backend", "Backend used on startup", KindEnum, g1, s1, "ddg", "degoog", "searxng", "brave"),
+		field("general.backend", "Backend used on startup", KindEnum, g1, s1, "ddg", "degoog", "searxng", "brave", "kagi", "fanout"),
 		field("general.results_per_page", "Results requested per page", KindInt, g2, s2),
 		field("general.safe_search", "Safe search level", KindEnum, g3, s3, "off", "moderate", "strict"),
 		field("general.region", "Region hint, e.g. us, de, pl (empty = auto)", KindString, g4, s4),
@@ -170,6 +173,9 @@ func Fields() []Field {
 		field("backends.searxng.instance", "SearXNG instance URL", KindString, b2, v2),
 		field("backends.searxng.fallbacks", "Public SearXNG instances to try next, comma separated", KindList, b3, v3),
 		secret(field("backends.brave.api_key", "Brave Search API key (or $SIT_BRAVE_API_KEY)", KindString, b1, v1)),
+		secret(field("backends.kagi.api_key", "Kagi Search API key (or $SIT_KAGI_API_KEY)", KindString, k1, x1)),
+		secret(field("backends.kagi.session_token", "Kagi session link or token, used without an API key (or $SIT_KAGI_SESSION)", KindString, k2, x2)),
+		field("backends.fanout.engines", "Backends the fanout backend queries at once, comma separated", KindList, f1, y1),
 	}
 	return append(fields, keyFieldOrder()...)
 }
@@ -212,7 +218,7 @@ func FieldByKey(key string) (Field, bool) {
 }
 
 func FieldKeys() []string {
-	var keys []string
+	keys := []string{"bangs.<name>"}
 	for _, f := range Fields() {
 		keys = append(keys, f.Key)
 	}
@@ -221,6 +227,9 @@ func FieldKeys() []string {
 }
 
 func (c *Config) SetValue(key, value string) error {
+	if name, ok := strings.CutPrefix(key, "bangs."); ok {
+		return c.setBang(name, value)
+	}
 	f, ok := FieldByKey(key)
 	if !ok {
 		return fmt.Errorf("unknown setting %q (see `sit config keys`)", key)
@@ -229,6 +238,13 @@ func (c *Config) SetValue(key, value string) error {
 }
 
 func (c *Config) GetValue(key string) (string, error) {
+	if name, ok := strings.CutPrefix(key, "bangs."); ok {
+		name = bangName(name)
+		if target, ok := c.Bangs[name]; ok {
+			return target, nil
+		}
+		return "", fmt.Errorf("no bang %q (add one with `sit config set bangs.%s <url>`)", name, name)
+	}
 	f, ok := FieldByKey(key)
 	if !ok {
 		return "", fmt.Errorf("unknown setting %q (see `sit config keys`)", key)

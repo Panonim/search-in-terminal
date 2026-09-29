@@ -57,6 +57,7 @@ sit bubble tea tutorial      # open the UI with the query already running
 sit search -n 5 "go generics"
 sit search --json "ripgrep" | jq -r '.[].URL'
 sit open "go module proxy"   # open the first hit in your browser
+sit '!gh bubbletea'          # open a bang you added in the settings bangs card
 sit backends                 # which backends are configured and ready
 sit doctor                   # config, cache, graphics support and a live probe of each backend
 ```
@@ -93,7 +94,7 @@ Inside the settings panel:
 | --- | --- |
 | <kbd>j</kbd> <kbd>k</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> | move between settings |
 | <kbd>h</kbd> <kbd>l</kbd> / <kbd>←</kbd> <kbd>→</kbd> | move to the neighbouring column |
-| <kbd>1</kbd>–<kbd>6</kbd> | jump to a numbered section |
+| <kbd>1</kbd>–<kbd>9</kbd> | jump to a numbered section |
 | <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> | jump to the next / previous section |
 | <kbd>Space</kbd> | cycle a boolean or enum value |
 | <kbd>Enter</kbd> | edit a text value, or toggle a boolean/enum |
@@ -122,7 +123,7 @@ Inside the settings panel:
 
 | Flag | Meaning |
 | --- | --- |
-| `-b`, `--backend <name>` | `ddg`, `degoog`, `searxng` or `brave` |
+| `-b`, `--backend <name>` | `ddg`, `degoog`, `searxng`, `brave`, `kagi` or `fanout` |
 | `-n`, `--limit <count>` | maximum results to print |
 | `-p`, `--page <number>` | result page |
 | `--json` | print JSON instead of text |
@@ -143,5 +144,5 @@ Inside the settings panel:
 
 ## Configuration
 
-See [docs/config.md](docs/config.md) for the config file, backend setup (Degoog, SearXNG, Brave,
-DuckDuckGo) and terminal graphics support.
+See [docs/config.md](docs/config.md) for the config file, backend setup (Degoog, SearXNG, Brave, Kagi,
+DuckDuckGo, fanout), query syntax, bangs and terminal graphics support.

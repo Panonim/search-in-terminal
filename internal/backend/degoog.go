@@ -115,24 +115,39 @@ func (d *degoog) request(ctx context.Context, query string, page int) (*http.Res
 		searchType = "web"
 	}
 
+	pq := parseQuery(query)
+	var dates map[string]string
+	if pq.after != "" || pq.before != "" {
+		dates = map[string]string{"time": "custom", "dateFrom": pq.after, "dateTo": pq.before}
+	}
+
 	var req *http.Request
 	var err error
 	if engines := d.cfg.Backends.Degoog.Engines; len(engines) > 0 {
-		body, _ := json.Marshal(map[string]any{
-			"query":    query,
+		fields := map[string]any{
+			"query":    pq.text,
 			"type":     searchType,
 			"page":     page,
 			"lang":     d.cfg.General.Region,
 			"safeMode": d.cfg.General.SafeSearch,
 			"engines":  engines,
-		})
+		}
+		for k, v := range dates {
+			fields[k] = v
+		}
+		body, _ := json.Marshal(fields)
 		req, err = http.NewRequestWithContext(ctx, http.MethodPost, d.instance+"/api/search", bytes.NewReader(body))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
 	} else {
 		q := url.Values{}
-		q.Set("q", query)
+		q.Set("q", pq.text)
+		for k, v := range dates {
+			if v != "" {
+				q.Set(k, v)
+			}
+		}
 		q.Set("type", searchType)
 		q.Set("page", strconv.Itoa(page))
 		q.Set("safeMode", d.cfg.General.SafeSearch)

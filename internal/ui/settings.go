@@ -38,8 +38,25 @@ func newSettings(cfg config.Config, styles Styles) settingsModel {
 	in := textinput.New()
 	in.Prompt = "› "
 	in.PromptStyle = styles.Accent
-	fields := config.Fields()
-	return settingsModel{cfg: cfg, fields: fields, sections: sections(fields), input: in, styles: styles}
+	s := settingsModel{cfg: cfg, input: in, styles: styles}
+	s.refresh()
+	return s
+}
+
+// refresh rebuilds the rows, since the bangs card has one per bang, and keeps the cursor on the same setting.
+func (s *settingsModel) refresh() {
+	key := ""
+	if s.idx < len(s.fields) {
+		key = s.fields[s.idx].Key
+	}
+	s.fields = append(append(config.Fields(), s.cfg.BangFields()...), config.AddBang())
+	s.sections = sections(s.fields)
+	s.idx = min(s.idx, len(s.fields)-1)
+	for i, f := range s.fields {
+		if f.Key == key {
+			s.idx = i
+		}
+	}
 }
 
 func sections(fields []config.Field) []section {
@@ -75,6 +92,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				s.dirty = true
 				s.msg = ""
+				s.refresh()
 			}
 			s.editing = false
 		case "esc":
@@ -130,6 +148,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.applySettings(true)
 	case "ctrl+r":
 		s.cfg = config.Default()
+		s.refresh()
 		s.dirty = true
 		s.msg = "defaults restored (not saved yet)"
 	default:

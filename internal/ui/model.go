@@ -273,6 +273,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if q == "" {
 				return m, nil
 			}
+			if u, ok := m.cfg.Bang(q); ok {
+				if err := open.URL(u, m.cfg.General.OpenCommand); err != nil {
+					return m, statusCmd(err.Error())
+				}
+				return m, statusCmd("opened " + u)
+			}
 			m.query = q
 			return m, m.search(q, 1, false)
 		case "up", "down", "pgup", "pgdown", "ctrl+d", "ctrl+u":
