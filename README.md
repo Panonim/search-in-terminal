@@ -1,5 +1,7 @@
 # SIT - Search in terminal
 
+<img width="80%" src="docs/images/app-preview.png" alt="App preview"/>
+
 ## Install
 
 ### The quick way
