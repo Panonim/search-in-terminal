@@ -136,6 +136,10 @@ func Fields() []Field {
 	g6, s6 := str(func(c *Config) *string { return &c.General.OpenCommand })
 	g7, s7 := num(func(c *Config) *int { return &c.General.CacheTTLSeconds })
 	g8, s8 := boolean(func(c *Config) *bool { return &c.General.Cache })
+	g9, s9 := boolean(func(c *Config) *bool { return &c.General.Prefetch })
+	g10, s10 := boolean(func(c *Config) *bool { return &c.General.InstantAnswers })
+	t6, u6 := str(func(c *Config) *string { return &c.Theme.Preset })
+	t7, u7 := str(func(c *Config) *string { return &c.Theme.Layout })
 	t1, u1 := str(func(c *Config) *string { return &c.Theme.Accent })
 	t2, u2 := boolean(func(c *Config) *bool { return &c.Theme.Icons })
 	t5, u5 := boolean(func(c *Config) *bool { return &c.Theme.IconBackdrop })
@@ -151,6 +155,12 @@ func Fields() []Field {
 	k1, x1 := str(func(c *Config) *string { return &c.Backends.Kagi.APIKey })
 	k2, x2 := str(func(c *Config) *string { return &c.Backends.Kagi.SessionToken })
 	f1, y1 := list(func(c *Config) *[]string { return &c.Backends.Fanout.Engines })
+	f2, y2 := list(func(c *Config) *[]string { return &c.Backends.Fanout.Weights })
+	// A new preset clears the accent override, otherwise picking it would change nothing visible.
+	presetSet := func(c *Config, v string) error {
+		c.Theme.Accent = ""
+		return u6(c, v)
+	}
 
 	fields := []Field{
 		field("general.backend", "Backend used on startup", KindEnum, g1, s1, "ddg", "degoog", "searxng", "brave", "kagi", "fanout"),
@@ -161,7 +171,11 @@ func Fields() []Field {
 		field("general.open_command", "Override the browser opener command", KindString, g6, s6),
 		field("general.cache", "Cache search results and favicons on disk", KindBool, g8, s8),
 		field("general.cache_ttl_seconds", "How long search results stay cached, in seconds", KindInt, g7, s7),
-		field("theme.accent", "Accent colour (hex or ANSI index)", KindString, t1, u1),
+		field("general.prefetch", "Fetch the next page in the background (never on billed APIs)", KindBool, g9, s9),
+		field("general.instant_answers", "Show calculator, unit and plugin answers above results", KindBool, g10, s10),
+		field("theme.preset", "Colour preset", KindEnum, t6, presetSet, Presets...),
+		field("theme.layout", "Result layout", KindEnum, t7, u7, Layouts...),
+		field("theme.accent", "Accent colour override, hex or ANSI index (empty = preset)", KindString, t1, u1),
 		field("theme.icons", "Render favicons when the terminal supports it", KindBool, t2, u2),
 		field("theme.icon_backdrop", "Put a circle behind favicons too dark or light for the terminal", KindBool, t5, u5),
 		field("theme.snippet_lines", "Snippet lines per result", KindInt, t3, u3),
@@ -176,6 +190,7 @@ func Fields() []Field {
 		secret(field("backends.kagi.api_key", "Kagi Search API key (or $SIT_KAGI_API_KEY)", KindString, k1, x1)),
 		secret(field("backends.kagi.session_token", "Kagi session link or token, used without an API key (or $SIT_KAGI_SESSION)", KindString, k2, x2)),
 		field("backends.fanout.engines", "Backends the fanout backend queries at once, comma separated", KindList, f1, y1),
+		field("backends.fanout.weights", "Ranking weight per engine, e.g. brave=1.5, kagi=2 (default 1)", KindList, f2, y2),
 	}
 	return append(fields, keyFieldOrder()...)
 }

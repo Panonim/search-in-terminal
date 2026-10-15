@@ -62,6 +62,15 @@ sit open "go module proxy"   # open the first hit in your browser
 sit '!gh bubbletea'          # open a bang you added in the settings bangs card
 sit backends                 # which backends are configured and ready
 sit doctor                   # config, cache, graphics support and a live probe of each backend
+sit search "5 km in mi"      # instant answers: calculator, units and your plugins
+```
+
+### Shell completion
+
+```sh
+source <(sit completion bash)                          # in ~/.bashrc
+source <(sit completion zsh)                           # in ~/.zshrc, after compinit
+sit completion fish > ~/.config/fish/completions/sit.fish
 ```
 
 <details>
@@ -88,7 +97,7 @@ Defaults. Anything with a setting name can be rebound under `[keys]` in the conf
 | <kbd>?</kbd> | toggle help | `keys.help` |
 | <kbd>q</kbd> / <kbd>Ctrl+c</kbd> | quit | `keys.quit` |
 
-Below the last result sits a **load more results** button: select it and press <kbd>Enter</kbd>, or click it, to append the next page. Results already on screen are skipped, so only new links are added.
+Below the last result sits a **load more results** button: select it and press <kbd>Enter</kbd>, or click it, to append the next page. Results already on screen are skipped, so only new links are added. The next page is fetched in the background while you read, so it appears instantly (`general.prefetch`; never on the billed Brave and Kagi APIs).
 
 Inside the settings panel:
 
@@ -115,6 +124,8 @@ Inside the settings panel:
 | `sit suggest <query…>` | print autocomplete suggestions (Degoog instances) |
 | `sit backends` | list backends and whether they are ready |
 | `sit config <subcommand>` | inspect and change settings |
+| `sit plugin <subcommand>` | add, list, remove and test instant-answer plugins ([docs](docs/plugins.md)) |
+| `sit completion <shell>` | print a bash, zsh or fish completion script |
 | `sit update [--check]` | update sit to the latest release |
 | `sit cache [info\|clear]` | inspect or drop the favicon cache |
 | `sit doctor` | check config, network and terminal support |
@@ -147,4 +158,5 @@ Inside the settings panel:
 ## Configuration
 
 See [docs/config.md](docs/config.md) for the config file, backend setup (Degoog, SearXNG, Brave, Kagi,
-DuckDuckGo, fanout), query syntax, bangs and terminal graphics support.
+DuckDuckGo, fanout), query syntax, bangs, themes and terminal graphics support, and
+[docs/plugins.md](docs/plugins.md) for writing and installing plugins.

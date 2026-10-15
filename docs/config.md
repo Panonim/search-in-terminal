@@ -23,10 +23,19 @@ open_command = ""
 cache = true
 # How long a cached result page is reused, in seconds.
 cache_ttl_seconds = 1800
+# Fetch the next result page in the background. Skipped for the Brave and Kagi APIs, which bill per search.
+prefetch = true
+# Show calculator, unit conversion and plugin answers above the results (see plugins.md).
+instant_answers = true
 
 [theme]
-# Accent colour, hex or an ANSI palette index.
-accent = "#5f9ea0"
+# Colour preset: default | mono | nord | gruvbox | catppuccin
+preset = "default"
+# Accent colour override, hex or an ANSI palette index. Empty uses the preset's accent;
+# picking a preset in the settings panel or with `sit config set` clears it.
+accent = ""
+# comfortable shows title, URL and snippet; compact shows one line per result.
+layout = "comfortable"
 # Draw favicons when the terminal supports a graphics protocol.
 icons = true
 # Put a soft circle behind favicons that would blend into the terminal background.
@@ -63,6 +72,8 @@ session_token = ""
 [backends.fanout]
 # Backends the fanout backend queries at the same time.
 engines = ["ddg", "brave"]
+# Ranking weight per engine; engines not listed weigh 1.
+weights = []
 
 [backends.degoog]
 # Your Degoog instance; $SIT_DEGOOG_URL and $DEGOOG_URL win over this value.
@@ -219,13 +230,29 @@ Kagi account settings here, and the API serves at most 10 pages.
 
 ## Fanout
 
-The `fanout` backend asks every backend in `backends.fanout.engines` at once, interleaves their results by
-rank and folds a page found by several engines into one result, whose source reads e.g. `ddg+brave`
-(`theme.show_source` shows it). A failing engine is skipped as long as another one answers.
+The `fanout` backend asks every backend in `backends.fanout.engines` at once and folds a page found by
+several engines into one result, whose source reads e.g. `ddg+brave` (`theme.show_source` shows it). Pages
+count as the same when they differ only in scheme, `www.`, a trailing slash, the fragment, parameter order or
+tracking parameters (`utm_*`, `fbclid`, `gclid`, …). A failing engine is skipped as long as another one answers.
+
+Results are ranked by reciprocal rank fusion: each engine adds `weight / (60 + rank)` to a page's score, so a
+page several engines agree on rises above one that a single engine ranked first. Weights default to 1:
 
 ```sh
 sit config set backends.fanout.engines "ddg, brave, kagi"
+sit config set backends.fanout.weights "kagi=2, brave=1.5"
 sit search -b fanout "zig allocators"
+```
+
+## Themes and layouts
+
+`theme.preset` picks the colours: `default`, `mono` (no colour), `nord`, `gruvbox` or `catppuccin`.
+`theme.accent` overrides the preset's accent. `theme.layout = "compact"` shows one line per result, title and
+host, with no snippet. All three are in the settings panel (<kbd>,</kbd>) and apply as soon as you save.
+
+```sh
+sit config set theme.preset gruvbox
+sit config set theme.layout compact
 ```
 
 ## Query syntax

@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/mattn/go-sixel v0.0.12
 	github.com/muesli/termenv v0.16.0
+	go.starlark.net v0.0.0-20261012215802-edf86ebe07b2
 	golang.org/x/image v0.46.0
 	golang.org/x/sys v0.48.0
 )
