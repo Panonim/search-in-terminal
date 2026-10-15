@@ -97,6 +97,23 @@ func All(cfg config.Config) []Backend {
 	return out
 }
 
+// Billed reports whether a search on name costs API credits, so background prefetch skips it.
+func Billed(name string, cfg config.Config) bool {
+	switch strings.ToLower(name) {
+	case "brave":
+		return cfg.BraveKey() != ""
+	case "kagi":
+		return cfg.KagiKey() != ""
+	case "fanout":
+		for _, e := range cfg.Backends.Fanout.Engines {
+			if !strings.EqualFold(e, "fanout") && Billed(e, cfg) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func Next(name string, step int) string {
 	idx := 0
 	for i, n := range Order {

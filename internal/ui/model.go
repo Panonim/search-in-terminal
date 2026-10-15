@@ -17,10 +17,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"github.com/Panonim/search-in-terminal/internal/answer"
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
 	img "github.com/Panonim/search-in-terminal/internal/image"
 	"github.com/Panonim/search-in-terminal/internal/open"
+	"github.com/Panonim/search-in-terminal/internal/plugin"
 )
 
 type pane int
@@ -48,6 +50,11 @@ type Model struct {
 	query   string
 	pane    pane
 
+	answer    *answer.Answer
+	providers []answer.Provider
+	// next holds a prefetched page so the next load is instant.
+	next *prefetchMsg
+
 	loading bool
 	reqID   int
 	errMsg  string
@@ -71,6 +78,18 @@ type resultsMsg struct {
 	err     error
 }
 
+type prefetchMsg struct {
+	backend string
+	query   string
+	page    int
+	results []backend.Result
+}
+
+type answerMsg struct {
+	query  string
+	answer *answer.Answer
+}
+
 type faviconMsg struct{ url string }
 
 type suggestionsMsg struct {
@@ -87,7 +106,7 @@ func New(cfg config.Config, version, initialQuery string) (Model, error) {
 	if err != nil {
 		return Model{}, err
 	}
-	styles := NewStyles(cfg.Theme.Accent)
+	styles := NewStyles(cfg.Theme)
 
 	in := textinput.New()
 	in.Placeholder = "search the web…"
@@ -116,6 +135,9 @@ func New(cfg config.Config, version, initialQuery string) (Model, error) {
 		vp:       viewport.New(80, 20),
 		page:     1,
 		settings: newSettings(cfg, styles),
+	}
+	if cfg.General.InstantAnswers {
+		m.providers = plugin.Providers()
 	}
 	if initialQuery != "" {
 		m.query = initialQuery
@@ -158,6 +180,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case resultsMsg:
 		return m.handleResults(msg)
+
+	case prefetchMsg:
+		if m.isNextPage(msg) {
+			m.next = &msg
+		}
+		return m, nil
+
+	case answerMsg:
+		if msg.query == m.query {
+			m.answer = msg.answer
+			m.renderContent()
+		}
+		return m, nil
 
 	case faviconMsg:
 		m.renderContent()
@@ -213,7 +248,7 @@ func (m Model) handleResults(msg resultsMsg) (tea.Model, tea.Cmd) {
 		}
 		if len(fresh) == 0 {
 			m.renderContent()
-			return m, statusCmd("no new results")
+			return m, tea.Batch(statusCmd("no new results"), m.prefetchPage())
 		}
 		m.sel = len(m.results)
 		m.results = append(m.results, fresh...)
@@ -227,7 +262,40 @@ func (m Model) handleResults(msg resultsMsg) (tea.Model, tea.Cmd) {
 	m.input.Blur()
 	m.renderContent()
 	m.scrollToSelection()
-	return m, m.prefetchIcons(msg.results)
+	return m, tea.Batch(m.prefetchIcons(msg.results), m.prefetchPage())
+}
+
+// prefetchPage loads the page after the current one in the background, except on billed APIs.
+func (m Model) prefetchPage() tea.Cmd {
+	if !m.cfg.General.Prefetch || m.query == "" || len(m.results) == 0 || backend.Billed(m.backend.Name(), m.cfg) {
+		return nil
+	}
+	b, query, page, timeout := m.backend, m.query, m.page+1, m.cfg.Timeout()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		res, err := b.Search(ctx, query, page)
+		if err != nil {
+			return nil
+		}
+		return prefetchMsg{backend: b.Name(), query: query, page: page, results: res}
+	}
+}
+
+func (m Model) isNextPage(p prefetchMsg) bool {
+	return p.backend == m.backend.Name() && p.query == m.query && p.page == m.page+1
+}
+
+func (m Model) findAnswer(query string) tea.Cmd {
+	if !m.cfg.General.InstantAnswers {
+		return nil
+	}
+	providers, timeout := m.providers, m.cfg.Timeout()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return answerMsg{query: query, answer: answer.Find(ctx, query, providers)}
+	}
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -368,6 +436,7 @@ func (m Model) switchBackend(step int) (tea.Model, tea.Cmd) {
 		return m, statusCmd(err.Error())
 	}
 	m.backend = b
+	m.next = nil
 	m.errMsg = ""
 	if ok, why := b.Ready(); !ok {
 		m.errMsg = name + ": " + why
@@ -405,8 +474,16 @@ func (m *Model) search(query string, page int, appendResults bool) tea.Cmd {
 	if page < 1 {
 		page = 1
 	}
+	var answerCmd tea.Cmd
+	if !appendResults {
+		m.next = nil
+		if page == 1 {
+			m.answer = nil
+			answerCmd = m.findAnswer(query)
+		}
+	}
 	reqID, b, timeout := m.reqID, m.backend, m.cfg.Timeout()
-	return tea.Batch(m.spin.Tick, func() tea.Msg {
+	return tea.Batch(m.spin.Tick, answerCmd, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		res, err := b.Search(ctx, query, page)
@@ -417,6 +494,13 @@ func (m *Model) search(query string, page int, appendResults bool) tea.Cmd {
 func (m *Model) loadMore() tea.Cmd {
 	if m.loading || m.query == "" || len(m.results) == 0 {
 		return nil
+	}
+	if n := m.next; n != nil && m.isNextPage(*n) {
+		m.next = nil
+		m.reqID++
+		m.loading = true
+		msg := resultsMsg{reqID: m.reqID, page: n.page, append: true, results: n.results}
+		return func() tea.Msg { return msg }
 	}
 	cmd := m.search(m.query, m.page+1, true)
 	m.renderContent()
@@ -432,11 +516,11 @@ func (m Model) onMoreButton(y int) bool {
 func unseen(shown, next []backend.Result) []backend.Result {
 	seen := make(map[string]bool, len(shown)+len(next))
 	for _, r := range shown {
-		seen[strings.TrimSuffix(r.URL, "/")] = true
+		seen[backend.URLKey(r.URL)] = true
 	}
 	var out []backend.Result
 	for _, r := range next {
-		if key := strings.TrimSuffix(r.URL, "/"); !seen[key] {
+		if key := backend.URLKey(r.URL); !seen[key] {
 			seen[key] = true
 			out = append(out, r)
 		}

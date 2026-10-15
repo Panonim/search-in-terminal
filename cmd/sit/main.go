@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Panonim/search-in-terminal/internal/answer"
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
 	img "github.com/Panonim/search-in-terminal/internal/image"
 	"github.com/Panonim/search-in-terminal/internal/open"
+	"github.com/Panonim/search-in-terminal/internal/plugin"
 	"github.com/Panonim/search-in-terminal/internal/ui"
 	"github.com/Panonim/search-in-terminal/internal/update"
 )
@@ -67,6 +69,10 @@ func run(args []string) error {
 		return cmdCache(args[1:])
 	case "doctor":
 		return cmdDoctor(cfg)
+	case "plugin", "plugins":
+		return cmdPlugin(args[1:])
+	case "completion":
+		return cmdCompletion(args[1:])
 	}
 	if strings.HasPrefix(args[0], "-") {
 		return fmt.Errorf("unknown flag %q, see `sit help`", args[0])
@@ -94,6 +100,8 @@ usage:
   sit suggest <query…>      print autocomplete suggestions (Degoog instances)
   sit backends              list backends and whether they are ready
   sit config <subcommand>   inspect and change settings
+  sit plugin <subcommand>   manage instant-answer plugins
+  sit completion <shell>    print a bash, zsh or fish completion script
   sit update [--check]      update sit to the latest release
   sit cache [info|clear]    inspect or drop the favicon and search result cache
   sit doctor                check config, network and terminal support
@@ -122,6 +130,12 @@ config subcommands:
   sit config keys           list every setting key
   sit config get <key>      print one setting
   sit config set <key> <v>  change one setting and save
+
+plugin subcommands:
+  sit plugin add <file>     review a plugin's permissions and install it
+  sit plugin list           list installed plugins and whether they work
+  sit plugin remove <name>  uninstall a plugin
+  sit plugin test <name|file> <query…>  run a plugin once, the network stays off for files
 `)
 }
 
@@ -181,6 +195,14 @@ func cmdSearch(cfg config.Config, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(results)
+	}
+	if cfg.General.InstantAnswers {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout())
+		a := answer.Find(ctx, query, plugin.Providers())
+		cancel()
+		if a != nil {
+			printAnswer(a)
+		}
 	}
 	if len(results) == 0 {
 		fmt.Printf("no results for %q\n", query)
@@ -404,6 +426,13 @@ func cmdDoctor(cfg config.Config) error {
 	fmt.Printf("graphics   %s\n", img.Detect())
 	fmt.Printf("degoog     %s\n", cfg.DegoogInstance())
 	fmt.Printf("terminal   TERM=%s TERM_PROGRAM=%s\n", os.Getenv("TERM"), os.Getenv("TERM_PROGRAM"))
+	for _, s := range plugin.Installed() {
+		if s.Problem != "" {
+			fmt.Printf("plugin     %s disabled: %s\n", s.Name, s.Problem)
+		} else {
+			fmt.Printf("plugin     %s ok\n", s.Name)
+		}
+	}
 	fmt.Println()
 
 	for _, b := range backend.All(cfg) {

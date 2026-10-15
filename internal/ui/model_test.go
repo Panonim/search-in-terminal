@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Panonim/search-in-terminal/internal/answer"
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
 	img "github.com/Panonim/search-in-terminal/internal/image"
@@ -24,6 +25,7 @@ func newTestModel(t *testing.T) Model {
 	t.Setenv("SIT_CACHE_DIR", t.TempDir())
 	cfg := config.Default()
 	cfg.Theme.Icons = false
+	cfg.General.Prefetch = false
 	m, err := New(cfg, "test", "")
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +174,7 @@ func TestHelpAndSettingsPanes(t *testing.T) {
 		t.Error("settings pane missing its fields")
 	}
 	m = press(m, "tab")
-	if f := m.settings.fields[m.settings.idx]; f.Key != "theme.accent" {
+	if f := m.settings.fields[m.settings.idx]; f.Key != "theme.preset" {
 		t.Errorf("tab should jump to the next section, got %s", f.Key)
 	}
 	m = press(m, "3")
@@ -294,6 +296,42 @@ func TestLoadMoreFetchesIconsForNewResultsOnly(t *testing.T) {
 	view := next.(Model).vp.View()
 	if !strings.Contains(view, "\x1b_G") || !strings.Contains(view, "ᶻ") {
 		t.Error("appended cached result should render its favicon and cache mark")
+	}
+}
+
+func TestLoadMoreUsesPrefetchedPage(t *testing.T) {
+	m := withResults(t, newTestModel(t), 2)
+	next, _ := m.Update(prefetchMsg{backend: m.backend.Name(), query: "go", page: 2, results: []backend.Result{{Title: "p2", URL: "https://example.com/p2"}}})
+	m = next.(Model)
+	cmd := m.loadMore()
+	if cmd == nil || m.next != nil {
+		t.Fatal("load more should take the prefetched page")
+	}
+	next, _ = m.Update(cmd())
+	if m = next.(Model); len(m.results) != 3 || m.page != 2 {
+		t.Errorf("want the prefetched result appended on page 2, got %d results, page %d", len(m.results), m.page)
+	}
+	next, _ = m.Update(prefetchMsg{backend: m.backend.Name(), query: "other", page: 3})
+	if next.(Model).next != nil {
+		t.Error("a prefetch for another query must be dropped")
+	}
+}
+
+func TestAnswerCardAndCompactLayout(t *testing.T) {
+	m := withResults(t, newTestModel(t), 2)
+	next, _ := m.Update(answerMsg{query: "go", answer: &answer.Answer{Title: "1+1", Body: "= 2", Source: "calculator"}})
+	m = next.(Model)
+	view := ansi.Strip(m.vp.View())
+	if !strings.Contains(view, "1+1  ·  calculator") || !strings.Contains(view, "= 2") || !strings.Contains(view, "╭") {
+		t.Errorf("answer card missing:\n%s", view)
+	}
+	if m.rowStart[0] == 0 {
+		t.Error("results should start below the card")
+	}
+	m.cfg.Theme.Layout = "compact"
+	m.renderContent()
+	if m.rowStart[1]-m.rowStart[0] != 1 {
+		t.Errorf("compact layout should use one line per result, starts = %v", m.rowStart)
 	}
 }
 

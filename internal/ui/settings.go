@@ -10,6 +10,7 @@ import (
 
 	"github.com/Panonim/search-in-terminal/internal/backend"
 	"github.com/Panonim/search-in-terminal/internal/config"
+	"github.com/Panonim/search-in-terminal/internal/plugin"
 )
 
 type settingsModel struct {
@@ -225,12 +226,15 @@ func (m Model) applySettings(save bool) (tea.Model, tea.Cmd) {
 	}
 	backendChanged := cfg.General.Backend != m.cfg.General.Backend
 	m.cfg = cfg
-	m.styles = NewStyles(cfg.Theme.Accent)
+	m.styles = NewStyles(cfg.Theme)
 	m.spin.Style = m.styles.Accent
 	m.settings.styles = m.styles
 	m.settings.dirty = false
 	m.settings.msg = "saved to " + config.Path()
 	m.renderer = newRenderer(cfg, m.bg)
+	if cfg.General.InstantAnswers && m.providers == nil {
+		m.providers = plugin.Providers()
+	}
 
 	// The active backend is rebuilt either way, since it holds its own copy of cache and search settings.
 	name := m.backend.Name()
@@ -240,6 +244,7 @@ func (m Model) applySettings(save bool) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if b, err := backend.New(name, cfg); err == nil {
 		m.backend = b
+		m.next = nil
 		if backendChanged && m.query != "" {
 			cmd = m.search(m.query, 1, false)
 		}

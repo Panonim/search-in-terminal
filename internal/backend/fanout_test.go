@@ -47,6 +47,40 @@ func TestFanoutInterleavesAndMerges(t *testing.T) {
 	}
 }
 
+func TestMergeRanksByFusedScore(t *testing.T) {
+	a := []Result{hit("https://a1/", "a", ""), hit("https://shared/", "a", ""), hit("https://a3/", "a", "")}
+	b := []Result{hit("https://b1/", "b", ""), hit("https://b2/", "b", ""), hit("https://shared/?utm_source=x", "b", "")}
+	urls := func(rs []Result) string {
+		var out []string
+		for _, r := range rs {
+			out = append(out, r.URL)
+		}
+		return strings.Join(out, " ")
+	}
+	// Found by both engines, the shared page outranks every single-engine hit.
+	if got := urls(merge([][]Result{a, b}, nil)); got != "https://shared/ https://a1/ https://b1/ https://b2/ https://a3/" {
+		t.Errorf("unweighted = %s", got)
+	}
+	if got := urls(merge([][]Result{a, b}, []float64{1, 3})); got != "https://shared/ https://b1/ https://b2/ https://a1/ https://a3/" {
+		t.Errorf("weighted = %s", got)
+	}
+}
+
+func TestURLKey(t *testing.T) {
+	same := [][2]string{
+		{"https://www.go.dev/doc/", "http://go.dev/doc#intro"},
+		{"https://x.io/p?b=2&a=1", "https://x.io/p?a=1&b=2&utm_medium=feed&fbclid=z"},
+	}
+	for _, p := range same {
+		if URLKey(p[0]) != URLKey(p[1]) {
+			t.Errorf("%s and %s should match: %s vs %s", p[0], p[1], URLKey(p[0]), URLKey(p[1]))
+		}
+	}
+	if URLKey("https://x.io/p?id=1") == URLKey("https://x.io/p?id=2") {
+		t.Error("real parameters must stay")
+	}
+}
+
 func TestFanoutKeepsResultsWhenOneEngineFails(t *testing.T) {
 	f := &fanout{engines: []Backend{
 		fake{name: "a", ready: true, err: errors.New("a: rate limited")},

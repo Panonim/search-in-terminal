@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,15 +34,25 @@ type General struct {
 	OpenCommand     string `toml:"open_command"`
 	Cache           bool   `toml:"cache"`
 	CacheTTLSeconds int    `toml:"cache_ttl_seconds"`
+	Prefetch        bool   `toml:"prefetch"`
+	InstantAnswers  bool   `toml:"instant_answers"`
 }
 
 type Theme struct {
+	Preset string `toml:"preset"`
+	// Accent overrides the preset's accent colour when set.
 	Accent       string `toml:"accent"`
+	Layout       string `toml:"layout"`
 	Icons        bool   `toml:"icons"`
 	IconBackdrop bool   `toml:"icon_backdrop"`
 	SnippetLines int    `toml:"snippet_lines"`
 	ShowSource   bool   `toml:"show_source"`
 }
+
+var (
+	Presets = []string{"default", "mono", "nord", "gruvbox", "catppuccin"}
+	Layouts = []string{"comfortable", "compact"}
+)
 
 type Keys struct {
 	Quit        string `toml:"quit"`
@@ -68,6 +79,8 @@ type Backends struct {
 
 type Fanout struct {
 	Engines []string `toml:"engines"`
+	// Weights holds "engine=factor" pairs; engines not listed weigh 1.
+	Weights []string `toml:"weights"`
 }
 
 type Brave struct {
@@ -110,9 +123,12 @@ func Default() Config {
 			TimeoutSeconds:  12,
 			Cache:           true,
 			CacheTTLSeconds: 1800,
+			Prefetch:        true,
+			InstantAnswers:  true,
 		},
 		Theme: Theme{
-			Accent:       "#5f9ea0",
+			Preset:       "default",
+			Layout:       "comfortable",
 			Icons:        true,
 			IconBackdrop: true,
 			SnippetLines: 2,
@@ -171,6 +187,19 @@ func (c Config) KagiSession() string {
 		return u.Query().Get("token")
 	}
 	return v
+}
+
+// FanoutWeights parses backends.fanout.weights, skipping malformed pairs.
+func (c Config) FanoutWeights() map[string]float64 {
+	out := map[string]float64{}
+	for _, pair := range c.Backends.Fanout.Weights {
+		name, val, ok := strings.Cut(pair, "=")
+		w, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+		if ok && err == nil && w >= 0 {
+			out[strings.ToLower(strings.TrimSpace(name))] = w
+		}
+	}
+	return out
 }
 
 func (c Config) DegoogKey() string {
@@ -252,8 +281,11 @@ func (c *Config) normalize() {
 	if c.General.SafeSearch == "" {
 		c.General.SafeSearch = d.General.SafeSearch
 	}
-	if c.Theme.Accent == "" {
-		c.Theme.Accent = d.Theme.Accent
+	if !contains(Presets, c.Theme.Preset) {
+		c.Theme.Preset = d.Theme.Preset
+	}
+	if !contains(Layouts, c.Theme.Layout) {
+		c.Theme.Layout = d.Theme.Layout
 	}
 	if c.Theme.SnippetLines <= 0 {
 		c.Theme.SnippetLines = d.Theme.SnippetLines

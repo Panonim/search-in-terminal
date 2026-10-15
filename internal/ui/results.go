@@ -42,13 +42,14 @@ func (m *Model) closePane() {
 }
 
 func (m *Model) resultLines() ([]string, []int) {
-	if len(m.results) == 0 {
-		return m.emptyLines(), nil
-	}
 	width := max(20, m.vp.Width)
+	if len(m.results) == 0 {
+		return append(m.answerLines(width), m.emptyLines()...), nil
+	}
 	textWidth := width - textIndex
 
-	var lines []string
+	compact := m.cfg.Theme.Layout == "compact"
+	lines := m.answerLines(width)
 	starts := make([]int, 0, len(m.results))
 	for i, r := range m.results {
 		starts = append(starts, len(lines))
@@ -63,16 +64,25 @@ func (m *Model) resultLines() ([]string, []int) {
 		if r.Cached {
 			suffix = " ᶻ 𝗓 𐰁"
 		}
-		titleText := truncate(r.Title, textWidth-utf8.RuneCountInString(suffix)) + suffix
-		lines = append(lines, prefix+m.icon(r.URL)+" "+title.Render(titleText))
 		host := hostLabel(r.URL)
 		if m.cfg.Theme.ShowSource && r.Source != "" {
 			host += "  ·  " + r.Source
 		}
+		if compact {
+			titleText := truncate(r.Title, textWidth*2/3) + suffix
+			row := title.Render(titleText) + "  " + m.styles.URL.Render(host)
+			lines = append(lines, prefix+m.icon(r.URL)+" "+truncate(row, textWidth))
+			continue
+		}
+		titleText := truncate(r.Title, textWidth-utf8.RuneCountInString(suffix)) + suffix
+		lines = append(lines, prefix+m.icon(r.URL)+" "+title.Render(titleText))
 		lines = append(lines, indent+m.styles.URL.Render(truncate(host, textWidth)))
 		for _, s := range wrap(r.Snippet, textWidth, m.cfg.Theme.SnippetLines) {
 			lines = append(lines, indent+m.styles.Snippet.Render(s))
 		}
+		lines = append(lines, "")
+	}
+	if compact {
 		lines = append(lines, "")
 	}
 	starts = append(starts, len(lines))
@@ -85,6 +95,42 @@ func (m *Model) resultLines() ([]string, []int) {
 	lines = append(lines, center(style.Render(label), width))
 	return lines, starts
 }
+
+// answerLines draws the instant answer as a card above the results, or one line in the compact layout.
+func (m *Model) answerLines(width int) []string {
+	a := m.answer
+	if a == nil {
+		return nil
+	}
+	head := a.Title
+	if a.Source != "" {
+		head += "  ·  " + a.Source
+	}
+	if m.cfg.Theme.Layout == "compact" {
+		row := m.styles.Dim.Render(head) + "  " + m.styles.TitleSel.Render(strings.Join(strings.Fields(a.Body), " "))
+		return []string{"  " + truncate(row, width-2), ""}
+	}
+	inner := max(10, width-6)
+	body := []string{m.styles.Dim.Render(truncate(head, inner))}
+	for _, l := range strings.Split(a.Body, "\n") {
+		for _, s := range wrap(l, inner, maxAnswerLines) {
+			if len(body) <= maxAnswerLines {
+				body = append(body, m.styles.TitleSel.Render(s))
+			}
+		}
+	}
+	if a.URL != "" {
+		body = append(body, m.styles.URL.Render(truncate(a.URL, inner)))
+	}
+	card := m.styles.BoxActive.Render(strings.Join(body, "\n"))
+	var out []string
+	for _, l := range strings.Split(card, "\n") {
+		out = append(out, " "+l)
+	}
+	return append(out, "")
+}
+
+const maxAnswerLines = 8
 
 func (m *Model) emptyLines() []string {
 	pad := strings.Repeat("\n", max(0, m.vp.Height/3))
